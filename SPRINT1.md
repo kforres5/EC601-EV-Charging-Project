@@ -21,6 +21,7 @@ At the end of two weeks we will show the project skeleton, which means setting u
 ## Assumptions
 
 ## Evaluation and Baseline
+Compared to the standard charging infrastructure used in homes, workplaces, and public fast-chargers today, the optimization scheme saves a few dollars every charge, which can add up to a few hundred dollars a year saved on charging costs.
 
 ## Merged Research
 
