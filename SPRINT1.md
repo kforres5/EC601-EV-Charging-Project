@@ -13,7 +13,7 @@ We are using the year of July 2025 - June 2026 for a sample.
 ## Tooling
 
 ## Demo Sentence
-At the end of two weeks we will show the project skeleton, which means setting up individual modules (outlined in the diagram) that each separately work as intended.
+At the end of two weeks we will show the project skeleton, which means setting up a framework of modules (outlined in the diagram) that each separately work as intended.
 
 ## Assumptions
 
