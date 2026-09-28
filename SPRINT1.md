@@ -5,6 +5,9 @@ For an electric vehicle owner who is charging their vehicle often and is looking
 EV Owner: As the EV Owner, I want to have my car fully charged at the cheapest possible rate so that I can save money and have it ready when I want to use it.
 
 ## User Stories
+- As a user, I'd like to know how much EverSource charges on average per month
+- As a user, I'd like to know how much I spend on average per month without any optimization
+- As a user, I'd like to know how my vehicle charging performance/cost compares to nearby surrounding charging vehicles
 
 ## Feasibility
 We will use data from Eversource about energy pricing: https://www.eversource.com/clp/vpp/vpphistory.aspx
