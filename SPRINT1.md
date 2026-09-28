@@ -25,3 +25,5 @@ At the end of two weeks we will show the project skeleton, which means setting u
 ## Merged Research
 
 ## Potential Harm
+This project is intentionally scoped to avoid the two riskiest failure modes of simulation-heavy robotics/AI projects: (1) no dependency on integrating multiple external simulators (CARLA, SUMO, Gazebo), since the environment is custom-built and lightweight; (2) no dependency on training a from-scratch deep perception model. The main risks are standard RL training risks — reward shaping and convergence — which can be mitigated by starting with a small N and simple reward function, then scaling up once the pipeline is validated end-to-end.
+
