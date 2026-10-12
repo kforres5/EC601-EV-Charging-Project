@@ -1,8 +1,5 @@
-
-
-Date,Last Resort Service On-Peak,Last Resort Service Off-Peak,Residential On-Peak,Residential Off-Peak,Small Commercial & Industrial On-Peak,Small Commercial & Industrial Off-Peak,Large Commercial & Industrial On-Peak,Large Commercial & Industrial Off-Peak,,
+Date,Last Resort Service On-Peak [$/kWh],Last Resort Service Off-Peak [$/kWh],Residential On-Peak [$/kWh],Residential Off-Peak [$/kWh],Small Commercial & Industrial On-Peak [$/kWh],Small Commercial & Industrial Off-Peak [$/kWh],Large Commercial & Industrial On-Peak [$/kWh],Large Commercial & Industrial Off-Peak [$/kWh],,
 06/30/2026,0.09301,0.0886,0.127,0.0833,0.11876,0.08395,0.11881,0.084,,
-06/29/2026,0.0854,0.0886,0.1204,0.0833,0.1111,0.08395,0.11115,0.084,,
 06/26/2026,0.07966,0.0886,0.11237,0.0833,0.10533,0.08395,0.10538,0.084,,
 06/25/2026,0.07228,0.0886,0.1054,0.0833,0.09791,0.08395,0.09796,0.084,,
 06/24/2026,0.06462,0.0886,0.09935,0.0833,0.09021,0.08395,0.09026,0.084,,
