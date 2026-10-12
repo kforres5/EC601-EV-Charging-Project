@@ -1,9 +1,13 @@
 """Metrics. Deadline-miss rate, queue wait, and peak load get added here later."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from .config import ScenarioConfig
+    from .recorder import StepRecord
 
 
 @dataclass
@@ -29,6 +33,8 @@ class SimulationResult:
     ev_results: list[EVResult]
     steps_run: int
     ended_at: datetime
+    config: Optional["ScenarioConfig"] = None
+    timeline: list["StepRecord"] = field(default_factory=list)   # empty if recording is off
 
     @property
     def total_cost(self) -> float:
