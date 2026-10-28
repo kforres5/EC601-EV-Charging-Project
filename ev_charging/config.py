@@ -6,9 +6,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+from .driver import DriverProfile
 from .paths import EVERSOURCE_CSV
 
 CUSTOMER_CLASSES = ("residential", "small_commercial", "large_commercial", "last_resort")
+HUB_LOCATIONS = ("work", "home")
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,10 @@ class ScenarioConfig:
     # --- hub (spec: 1 hub with M chargers) ---
     num_chargers: int = 1                              # M
     charger_kw: float = 7.2                            # constant rate
+    hub_location: str = "work"                         # where the hub is, for EVs with a driver
+
+    # --- drivers (constant schedule for now; see ev_charging/driver.py) ---
+    driver: DriverProfile = field(default_factory=DriverProfile)
 
     # --- EVs (spec: all identical) ---
     battery_kwh: float = 60.0
@@ -69,3 +75,5 @@ class ScenarioConfig:
             raise ValueError("charging_efficiency must be in (0, 1]")
         if self.customer_class not in CUSTOMER_CLASSES:
             raise ValueError(f"customer_class must be one of {CUSTOMER_CLASSES}")
+        if self.hub_location not in HUB_LOCATIONS:
+            raise ValueError(f"hub_location must be one of {HUB_LOCATIONS}")

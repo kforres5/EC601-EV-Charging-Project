@@ -77,7 +77,10 @@ def _targets(rec: StepRecord, ev_ids: list[str], bays) -> dict[str, _Pos]:
     """Where every car should be during this record's interval."""
     pos: dict[str, _Pos] = {}
     waiting = [s for s in rec.evs if s.state is EVState.WAITING]
-    done = [s for s in rec.evs if s.state is EVState.DONE]
+    # right-hand zone: cars that left for good (no driver) or are away from the hub (driver)
+    right = [s for s in rec.evs if _in_right_zone(s)]
+    if not any(s.location for s in right):
+        right.reverse()          # driverless runs: latest-listed finisher on top
     for s in rec.evs:
         if s.state in (EVState.CHARGING, EVState.IDLE) and s.charger_id is not None:
             bx, by = bays[s.charger_id]
@@ -88,9 +91,8 @@ def _targets(rec: StepRecord, ev_ids: list[str], bays) -> dict[str, _Pos]:
                 pos[s.ev_id] = _Pos(*_stack_slot(WAIT_X, k))
             else:
                 pos[s.ev_id] = _Pos(*_stack_slot(WAIT_X, MAX_STACK - 1), visible=False)
-        elif s.state is EVState.DONE:
-            # newest finishers on top; older ones scroll off the bottom
-            k = len(done) - 1 - done.index(s)
+        elif _in_right_zone(s):
+            k = right.index(s)
             if k < MAX_STACK:
                 pos[s.ev_id] = _Pos(*_stack_slot(EXIT_X, k))
             else:
@@ -98,6 +100,11 @@ def _targets(rec: StepRecord, ev_ids: list[str], bays) -> dict[str, _Pos]:
         else:   # away
             pos[s.ev_id] = _Pos(OFFSCREEN_LEFT, ZONE_TOP - 6, visible=False)
     return pos
+
+
+def _in_right_zone(s) -> bool:
+    return s.state is EVState.DONE or (s.state in (EVState.AWAY, EVState.DRIVING)
+                                       and s.location is not None)
 
 
 def _ease(t: float) -> float:
@@ -140,6 +147,7 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
 
     cfg = result.config
     ev_ids = [s.ev_id for s in tl[0].evs]
+    has_drivers = any(s.location is not None for r in tl for s in r.evs)
     n = len(ev_ids)
     m = cfg.num_chargers if cfg else 1 + max((s.charger_id or 0) for r in tl for s in r.evs)
     hub_kw = (cfg.num_chargers * cfg.charger_kw) if cfg else None
@@ -162,7 +170,7 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
 
         # static scene: zones and charger bays
         for (x0, x1), title in ((WAIT_X, "Arriving / waiting"), (BAY_X, f"Chargers ({m})"),
-                                (EXIT_X, "Charged & left")):
+                                (EXIT_X, "Away from hub" if has_drivers else "Charged & left")):
             ax.add_patch(FancyBboxPatch((x0, 2), x1 - x0, ZONE_TOP - 2 + 3,
                                         boxstyle="round,pad=0,rounding_size=1.5",
                                         fc="#f6f6f3", ec=style.GRID, lw=1, zorder=0))
@@ -196,6 +204,7 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
                 ax.add_patch(art)
             cars[ev] = (body, label, batt_bg, batt, pct)
         more_wait = ax.text(sum(WAIT_X) / 2, 4.5, "", ha="center", fontsize=8, color=style.INK_2)
+        more_away = ax.text(sum(EXIT_X) / 2, 4.5, "", ha="center", fontsize=8, color=style.INK_2)
 
         head_time = ax_head.text(0, 0.62, "", fontsize=15, fontweight="bold",
                                  color=style.INK, va="center")
@@ -248,7 +257,9 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
                 batt.set_xy((x0, y0 - 1.7))
                 batt.set_width(CAR_W * soc)
                 pct.set_position((p.x, y0 - 1.9))
-                pct.set_text(f"{soc * 100:.0f}%")
+                where = (f" · {snap.location}" if snap.location
+                         and snap.state in (EVState.AWAY, EVState.DRIVING) else "")
+                pct.set_text(f"{soc * 100:.0f}%{where}")
                 for art in (body, label, batt_bg, batt, pct):
                     art.set_visible(p.visible)
 
@@ -263,6 +274,9 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
 
             n_wait = sum(s.state is EVState.WAITING for s in rec.evs)
             more_wait.set_text(f"+{n_wait - MAX_STACK} more waiting" if n_wait > MAX_STACK else "")
+            n_right = sum(_in_right_zone(s) for s in rec.evs)
+            more_away.set_text(f"+{n_right - MAX_STACK} more" if n_right > MAX_STACK else "")
+            n_drive = sum(s.state is EVState.DRIVING for s in rec.evs)
 
             load = rec.hub_load_kw if k < last else 0.0
             cost = sum(s.cost for s in rec.evs) + sum(
@@ -272,7 +286,7 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
             cap = f" of {hub_kw:g} kW" if hub_kw else ""
             head_info.set_text(f"${rec.price:.4f}/kWh ({period})   ·   hub load {load:g} kW{cap}"
                                f"   ·   {sum(s.state is EVState.CHARGING for s in rec.evs)} charging, "
-                               f"{n_wait} waiting")
+                               f"{n_wait} waiting" + (f", {n_drive} driving" if has_drivers else ""))
             head_cost.set_text(f"${cost:,.2f}")
 
             upto = k + 1

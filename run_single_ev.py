@@ -35,10 +35,16 @@ def print_results(cfg: ScenarioConfig, result: SimulationResult) -> None:
           f"{' weekdays' if cfg.peak.weekdays_only else ' every day'}")
     for r in result.ev_results:
         print(f"EV {r.ev_id}: SOC {r.start_soc:.0%} -> {r.final_soc:.0%}")
-        print(f"  Charged {r.charge_started} -> {r.charge_finished}")
+        if r.charge_finished is not None or not (r.energy_driven_kwh or r.hub_departures):
+            print(f"  Charged {r.charge_started} -> {r.charge_finished}")
+        else:
+            print(f"  First charge: {r.charge_started or 'never'}")
         print(f"  Energy: {r.energy_kwh:.2f} kWh "
               f"(off-peak {r.off_peak_kwh:.2f}, on-peak {r.on_peak_kwh:.2f})")
         print(f"  Cost: ${r.cost:.2f}  (avg ${r.avg_price_per_kwh:.4f}/kWh)")
+        if r.energy_driven_kwh or r.hub_departures:
+            print(f"  Driving: {r.energy_driven_kwh:.2f} kWh used, {r.shortfall_kwh:.2f} kWh short; "
+                  f"left the hub {r.hub_departures}x, {r.departures_below_target}x below target")
     if len(result.ev_results) > 1:
         print(f"Total cost: ${result.total_cost:.2f}")
 

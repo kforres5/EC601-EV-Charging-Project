@@ -15,6 +15,7 @@ from typing import Optional
 import matplotlib
 import matplotlib.dates as mdates
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from ..metrics import SimulationResult
@@ -56,10 +57,15 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
 
         # headline
         total = result.total_cost
-        done = sum(r.reached_required_soc for r in result.ev_results)
+        departures = sum(r.hub_departures for r in result.ev_results)
+        if departures:   # commuting drivers: judge each time a car leaves the hub
+            ok = departures - sum(r.departures_below_target for r in result.ev_results)
+            goal = f"{ok}/{departures} hub departures at target charge"
+        else:
+            done = sum(r.reached_required_soc for r in result.ev_results)
+            goal = f"{done}/{n} reached target charge"
         fig.suptitle(
-            f"{n} EV{'s' if n != 1 else ''} · {done}/{n} reached target charge · "
-            f"total cost ${total:,.2f}",
+            f"{n} EV{'s' if n != 1 else ''} · {goal} · total cost ${total:,.2f}",
             x=0.01, ha="left", fontsize=13, fontweight="bold", color=style.INK)
 
         for ax in axes[:4]:
@@ -88,6 +94,8 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
 
         # 3. SOC  /  4. cumulative cost, one line per EV
         label_lines = n <= style.MAX_DIRECT_LABELS
+        soc_ends: dict[str, list] = {}    # rounded end value -> EVs, so equal lines share a label
+        cost_ends: dict[str, list] = {}
         for i, ev_id in enumerate(ev_ids):
             c = style.ev_color(i, n)
             soc = [style.soc_or_nan(r.snapshot(ev_id)) for r in tl]
@@ -98,8 +106,12 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
             ax_cost.plot(times, cost, color=c, lw=lw, alpha=alpha, label=ev_id)
             if label_lines:
                 if soc[-1] == soc[-1]:   # skip NaN (car never arrived)
-                    _end_label(ax_soc, times[-1], soc[-1], f"{ev_id} {soc[-1]:.0f}%", c)
-                _end_label(ax_cost, times[-1], cost[-1], f"{ev_id} ${cost[-1]:.2f}", c)
+                    soc_ends.setdefault(f"{soc[-1]:.0f}%", []).append((ev_id, soc[-1], c))
+                cost_ends.setdefault(f"${cost[-1]:.2f}", []).append((ev_id, cost[-1], c))
+        for ax, ends in ((ax_soc, soc_ends), (ax_cost, cost_ends)):
+            for text, evs in ends.items():
+                names = ", ".join(e for e, _, _ in evs)
+                _end_label(ax, times[-1], evs[0][1], f"{names} {text}", evs[0][2])
         ax_soc.set_ylim(0, 105)
         ax_soc.set_title("State of charge (%)")
         ax_cost.set_ylim(bottom=0)
@@ -133,6 +145,9 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
                     ax_gantt.broken_barh([(start, width)], (y - 0.2, 0.4),
                                          facecolors="none", edgecolors=c, lw=1.2,
                                          linestyle=(0, (3, 2)))
+                elif state is EVState.DRIVING:
+                    ax_gantt.broken_barh([(start, width)], (y - 0.06, 0.12),
+                                         facecolors=c, edgecolors="none")
         ax_gantt.set_yticks(range(n), list(reversed(ev_ids)))
         ax_gantt.set_ylim(-0.7, n - 0.3)
         ax_gantt.grid(False)
@@ -142,10 +157,12 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
             Patch(facecolor=style.MUTED, alpha=0.3, hatch="////", edgecolor=style.MUTED,
                   label="plugged in, not charging"),
             Patch(facecolor="none", edgecolor=style.MUTED, linestyle="--", label="waiting for a charger"),
-            Patch(facecolor=style.PEAK_BAND, label="on-peak hours"),
         ]
+        if any(s.state is EVState.DRIVING for r in tl for s in r.evs):
+            legend.append(Line2D([], [], color=style.MUTED, lw=3, label="driving"))
+        legend.append(Patch(facecolor=style.PEAK_BAND, label="on-peak hours"))
         ax_gantt.legend(handles=legend, loc="lower right", bbox_to_anchor=(1.0, 1.0),
-                        ncols=4, fontsize=8, borderaxespad=0.2)
+                        ncols=len(legend), fontsize=8, borderaxespad=0.2)
 
         # shared time axis
         locator = mdates.AutoDateLocator(minticks=5, maxticks=12)

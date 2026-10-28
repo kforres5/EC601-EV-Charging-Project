@@ -17,11 +17,12 @@ from typing import Optional
 
 
 class EVState(str, Enum):
-    AWAY = "away"           # not arrived yet
+    AWAY = "away"           # not at the hub (not arrived yet, or at home/work elsewhere)
+    DRIVING = "driving"     # on a commute (only EVs with a driver)
     WAITING = "waiting"     # at the hub, no free charger
     CHARGING = "charging"   # plugged in and drawing power
-    IDLE = "idle"           # plugged in, strategy chose to wait
-    DONE = "done"           # reached required SOC and left the charger
+    IDLE = "idle"           # plugged in but not drawing power (full, or strategy waited)
+    DONE = "done"           # reached required SOC and left for good (EVs without a driver)
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class EVSnapshot:
     soc: float              # fraction 0..1
     power_kw: float         # grid-side draw during the interval
     cost: float             # cumulative $ at start of the interval
+    location: Optional[str] = None   # driver's location ("home"/"work"/"driving"); None without a driver
 
 
 @dataclass(frozen=True)

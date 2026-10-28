@@ -22,6 +22,11 @@ class EVResult:
     charge_started: Optional[datetime]
     charge_finished: Optional[datetime]
     reached_required_soc: bool
+    # driver-only metrics (0 for EVs without a driver)
+    energy_driven_kwh: float = 0.0
+    shortfall_kwh: float = 0.0          # driving energy the battery didn't have
+    hub_departures: int = 0             # times the car left the hub
+    departures_below_target: int = 0    # ...with SOC still under required_soc
 
     @property
     def avg_price_per_kwh(self) -> float:
