@@ -102,9 +102,11 @@ def _targets(rec: StepRecord, ev_ids: list[str], bays) -> dict[str, _Pos]:
     return pos
 
 
+_AWAY_STATES = (EVState.AWAY, EVState.DRIVING, EVState.PARKED)
+
+
 def _in_right_zone(s) -> bool:
-    return s.state is EVState.DONE or (s.state in (EVState.AWAY, EVState.DRIVING)
-                                       and s.location is not None)
+    return s.state is EVState.DONE or (s.state in _AWAY_STATES and s.location is not None)
 
 
 def _ease(t: float) -> float:
@@ -170,7 +172,7 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
 
         # static scene: zones and charger bays
         for (x0, x1), title in ((WAIT_X, "Arriving / waiting"), (BAY_X, f"Chargers ({m})"),
-                                (EXIT_X, "Away from hub" if has_drivers else "Charged & left")):
+                                (EXIT_X, "Away from chargers" if has_drivers else "Charged & left")):
             ax.add_patch(FancyBboxPatch((x0, 2), x1 - x0, ZONE_TOP - 2 + 3,
                                         boxstyle="round,pad=0,rounding_size=1.5",
                                         fc="#f6f6f3", ec=style.GRID, lw=1, zorder=0))
@@ -257,8 +259,12 @@ def animate_hub(result: SimulationResult, path: Optional[str | Path] = None, *,
                 batt.set_xy((x0, y0 - 1.7))
                 batt.set_width(CAR_W * soc)
                 pct.set_position((p.x, y0 - 1.9))
-                where = (f" · {snap.location}" if snap.location
-                         and snap.state in (EVState.AWAY, EVState.DRIVING) else "")
+                if snap.state is EVState.PARKED:
+                    where = " · parked"
+                elif snap.location and snap.state in _AWAY_STATES:
+                    where = f" · {snap.location}"
+                else:
+                    where = ""
                 pct.set_text(f"{soc * 100:.0f}%{where}")
                 for art in (body, label, batt_bg, batt, pct):
                     art.set_visible(p.visible)

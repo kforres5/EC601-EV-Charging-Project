@@ -119,7 +119,11 @@ with base price ≥ cost floor (A6).
 
 ### M5. Work charging
 Available only during work hours, at most X hours/day, with a limited number of work chargers
-(first come, first served, plus a "move your car after X hours" rule).
+(first come, first served, plus a "move your car" rule).
+**Implemented:** once a car reaches its target charge, the driver has 60 minutes to move it
+(`move_window_minutes`, work hubs only via `move_rule_at`). The car then parks in a regular spot
+and can't plug back in that day; a car arriving already at its target parks straight away.
+Drivers are assumed to always move on time (no overstay fee yet). The X-hours/day limit is still **TBD**.
 
 ### M6. Time scales
 | What | How often |
@@ -161,7 +165,7 @@ cheaper than off-peak on most days, so a large hub has almost no reason to avoid
 ### Rules for turning the CSV into a price at any time
 1. **Peak window:** weekdays 12:00–20:00 (confirmed by Eversource and EnergizeCT for Rate 7, and
    for Rate 27 small business). Set `PeakWindow(start_hour=12, end_hour=20)`.
-   The current `config.py` default is still 7–23 and needs this change.
+   This is now the default in `config.py`.
    Large C&I / Last Resort windows are **TBD** (confirm in the tariff).
 2. **Weekends:** off-peak all day, using that month's off-peak price. Already handled.
 3. **Holidays:** **TBD** whether they count as off-peak. The CSV has rows on 7/4, 12/25 and 1/1.

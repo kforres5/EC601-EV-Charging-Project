@@ -10,7 +10,7 @@ from ev_charging.simulation import Simulation
 
 MON = datetime(2025, 7, 7)          # a Monday
 SAT = datetime(2025, 7, 12)
-D = DriverProfile()                 # 9-17, 15 mi / 30 min each way, 0.30 kWh/mi
+D = DriverProfile()                 # 9-17, 15 mi / 30 min each way
 
 
 # ------------------------------------------------------------ driver profile
@@ -26,16 +26,32 @@ def test_weekday_locations(hhmm, loc):
 
 def test_weekend_at_home_all_day():
     assert all(D.location_at(SAT + timedelta(hours=h)) is Location.HOME for h in range(24))
-    assert D.daily_kwh(SAT.date()) == 0
+    assert D.daily_miles(SAT.date()) == 0
 
 
-def test_driving_energy():
-    assert D.trip_kwh == pytest.approx(4.5)
-    assert D.driving_kwh(MON, MON + timedelta(days=1)) == pytest.approx(9.0)
+def test_driving_miles():
+    assert D.trip_miles == pytest.approx(15)
+    assert D.daily_miles(MON.date()) == pytest.approx(30)
+    assert D.driving_miles(MON, MON + timedelta(days=1)) == pytest.approx(30)
     # one 15-minute step is half of a 30-minute trip
-    assert D.driving_kwh(MON.replace(hour=8, minute=30), MON.replace(hour=8, minute=45)) \
-        == pytest.approx(2.25)
-    assert D.driving_kwh(SAT, SAT + timedelta(days=1)) == 0
+    assert D.driving_miles(MON.replace(hour=8, minute=30), MON.replace(hour=8, minute=45)) \
+        == pytest.approx(7.5)
+    assert D.driving_miles(SAT, SAT + timedelta(days=1)) == 0
+
+
+def test_ev_turns_miles_into_energy():
+    ev = EV("x", 60, soc=0.5, kwh_per_mile=0.25)
+    assert ev.drive(10) == 0
+    assert ev.energy_driven_kwh == pytest.approx(2.5)
+    assert ev.miles_driven == pytest.approx(10)
+    assert ev.soc == pytest.approx(0.5 - 2.5 / 60)
+
+
+def test_bad_kwh_per_mile_rejected():
+    with pytest.raises(ValueError):
+        EV("x", 60, kwh_per_mile=0)
+    with pytest.raises(ValueError):
+        ScenarioConfig(kwh_per_mile=-1)
 
 
 def test_fraction_at_partial_step():
@@ -47,7 +63,7 @@ def test_fraction_at_partial_step():
 @pytest.mark.parametrize("kwargs", [
     dict(work_start=time(17), work_end=time(9)),
     dict(commute_minutes=0),
-    dict(kwh_per_mile=0),
+    dict(commute_miles=-1),
     dict(work_days=(7,)),
     dict(work_start=time(0, 10), commute_minutes=30),     # would leave the day before
 ])
@@ -57,12 +73,16 @@ def test_bad_profiles_rejected(kwargs):
 
 
 # ------------------------------------------------------------ in the simulation
-def run(n_evs=1, chargers=1, hub="work", days=1, soc=0.5, target=0.8, start=MON):
+def run(n_evs=1, chargers=1, hub="work", days=1, soc=0.5, target=0.8, start=MON,
+        move_window=None, kwh_per_mile=0.30):
+    """Move-your-car rule is OFF unless move_window (minutes) is given."""
     cfg = ScenarioConfig(start=start, end=start + timedelta(days=days),
-                         num_chargers=chargers, hub_location=hub, price_csv=None)
+                         num_chargers=chargers, hub_location=hub, price_csv=None,
+                         move_window_minutes=move_window)
     sim = Simulation(cfg)
     for i in range(n_evs):
-        sim.add_ev(EV(f"ev-{i}", cfg.battery_kwh, soc=soc, required_soc=target, driver=cfg.driver))
+        sim.add_ev(EV(f"ev-{i}", cfg.battery_kwh, soc=soc, required_soc=target, driver=cfg.driver,
+                      kwh_per_mile=kwh_per_mile))
     return sim.run()
 
 
@@ -130,3 +150,54 @@ def test_driverless_evs_unchanged():
 def test_bad_hub_location_rejected():
     with pytest.raises(ValueError):
         ScenarioConfig(hub_location="mall")
+
+
+# ------------------------------------------------------------ move-your-car rule
+def test_full_car_moves_after_window_and_frees_charger():
+    r = run(n_evs=2, chargers=1, move_window=60)
+    a, b = r.ev_results
+    # ev-0 arrives at 42.5%, full (80%) at 12:15, idle until 13:15, then parks
+    assert state_at(r, "ev-0", "12:15").state is EVState.IDLE
+    assert state_at(r, "ev-0", "13:00").state is EVState.IDLE
+    assert state_at(r, "ev-0", "13:15").state is EVState.PARKED
+    assert state_at(r, "ev-0", "13:15").charger_id is None
+    assert (a.moves, a.idle_plugged_hours) == (1, pytest.approx(1.0))
+    # ev-1 waits until 13:15, then gets the charger and reaches 80% before 17:00
+    assert state_at(r, "ev-1", "13:00").state is EVState.WAITING
+    assert state_at(r, "ev-1", "13:15").state is EVState.CHARGING
+    assert b.departures_below_target == 0
+    assert b.energy_kwh == pytest.approx(22.5)
+
+
+def test_parked_car_does_not_plug_back_in_same_day():
+    r = run(n_evs=1, chargers=1, move_window=0)
+    states = [rec.snapshot("ev-0").state for rec in r.timeline
+              if rec.time.hour >= 13 and rec.time < MON.replace(hour=17)]
+    assert set(states) == {EVState.PARKED}
+
+
+def test_car_already_at_target_parks_without_a_charger():
+    r = run(n_evs=1, chargers=1, soc=0.95, target=0.8, move_window=60)
+    assert state_at(r, "ev-0", "09:00").state is EVState.PARKED
+    assert r.ev_results[0].energy_kwh == 0
+
+
+def test_rule_only_applies_at_listed_hub_locations():
+    r = run(hub="home", soc=0.2, target=0.8, move_window=60, days=1)
+    # home is not in move_rule_at, so the full car stays plugged in overnight
+    assert r.ev_results[0].moves == 0
+    assert state_at(r, "ev-0", "06:00").state is EVState.IDLE
+
+
+def test_move_rule_is_on_by_default_at_work():
+    cfg = ScenarioConfig()
+    assert cfg.move_window_minutes == 60 and cfg.move_rule_at == ("work",)
+    with pytest.raises(ValueError):
+        ScenarioConfig(move_window_minutes=-5)
+
+
+def test_less_efficient_ev_uses_more_energy_on_same_commute():
+    r = run(hub="home", soc=0.9, target=0.0, kwh_per_mile=0.40)   # never charges
+    e = r.ev_results[0]
+    assert e.energy_driven_kwh == pytest.approx(30 * 0.40)
+    assert e.final_soc == pytest.approx(0.9 - 12 / 60)

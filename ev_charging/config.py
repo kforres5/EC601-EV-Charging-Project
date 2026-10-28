@@ -17,12 +17,13 @@ HUB_LOCATIONS = ("work", "home")
 class PeakWindow:
     """Which hours are billed at the on-peak rate.
 
-    ASSUMPTION (change freely): ISO-New England's standard on-peak block,
-    7:00-23:00 on weekdays; weekends (and any listed holidays) are off-peak
-    all day. The dataset only has weekday rows, which fits this convention.
+    Default: Eversource Connecticut time-of-use peak, weekdays 12:00-20:00
+    (Rate 7 residential and Rate 27 small business; the CSV is Eversource CT
+    Variable Peak Pricing). Weekends are off-peak all day. Whether holidays
+    count as off-peak is unconfirmed; list them in `holidays` once known.
     """
-    start_hour: int = 7          # inclusive
-    end_hour: int = 23           # exclusive
+    start_hour: int = 12         # inclusive
+    end_hour: int = 20           # exclusive
     weekdays_only: bool = True
     holidays: tuple[date, ...] = ()
 
@@ -53,8 +54,16 @@ class ScenarioConfig:
     # --- drivers (constant schedule for now; see ev_charging/driver.py) ---
     driver: DriverProfile = field(default_factory=DriverProfile)
 
+    # --- "move your car" rule for EVs with a driver ---
+    # Once a car reaches its target charge it must leave the charger within this
+    # many minutes; it then parks in a regular spot and can't plug back in until
+    # the driver leaves and comes back. None turns the rule off.
+    move_window_minutes: Optional[int] = 60
+    move_rule_at: tuple[str, ...] = ("work",)          # hub locations where the rule applies
+
     # --- EVs (spec: all identical) ---
     battery_kwh: float = 60.0
+    kwh_per_mile: float = 0.30                         # driving efficiency
     charging_efficiency: float = 1.0                   # 1.0 = no losses
 
     # --- pricing ---
@@ -71,9 +80,15 @@ class ScenarioConfig:
             raise ValueError("end must be after start")
         if self.num_chargers < 1:
             raise ValueError("num_chargers must be >= 1")
+        if self.kwh_per_mile <= 0:
+            raise ValueError("kwh_per_mile must be positive")
         if not 0 < self.charging_efficiency <= 1:
             raise ValueError("charging_efficiency must be in (0, 1]")
         if self.customer_class not in CUSTOMER_CLASSES:
             raise ValueError(f"customer_class must be one of {CUSTOMER_CLASSES}")
         if self.hub_location not in HUB_LOCATIONS:
             raise ValueError(f"hub_location must be one of {HUB_LOCATIONS}")
+        if self.move_window_minutes is not None and self.move_window_minutes < 0:
+            raise ValueError("move_window_minutes must be >= 0 or None")
+        if not set(self.move_rule_at) <= set(HUB_LOCATIONS):
+            raise ValueError(f"move_rule_at entries must be in {HUB_LOCATIONS}")

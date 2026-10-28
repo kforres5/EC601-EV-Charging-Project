@@ -6,8 +6,9 @@ For now every driver follows one constant weekday schedule:
     home --(commute)--> work [work_start .. work_end] --(commute)--> home
 
 The morning commute ends exactly at work_start and the evening commute starts
-exactly at work_end. On non-work days the car stays home all day. Driving drains
-the battery evenly over each trip (commute_miles * kwh_per_mile per trip).
+exactly at work_end. On non-work days the car stays home all day. The driver
+profile only knows miles and times; each EV turns miles into energy with its
+own kwh_per_mile (see ev.py), spread evenly over each trip.
 """
 from __future__ import annotations
 
@@ -28,7 +29,6 @@ class DriverProfile:
     work_end: time = time(17, 0)
     commute_miles: float = 15.0          # one way
     commute_minutes: int = 30            # one way
-    kwh_per_mile: float = 0.30
     work_days: tuple[int, ...] = (0, 1, 2, 3, 4)   # Mon=0 .. Sun=6
 
     def __post_init__(self) -> None:
@@ -36,8 +36,8 @@ class DriverProfile:
             raise ValueError("work_start must be before work_end")
         if self.commute_minutes <= 0:
             raise ValueError("commute_minutes must be positive")
-        if self.commute_miles < 0 or self.kwh_per_mile <= 0:
-            raise ValueError("commute_miles must be >= 0 and kwh_per_mile > 0")
+        if self.commute_miles < 0:
+            raise ValueError("commute_miles must be >= 0")
         if not set(self.work_days) <= set(range(7)):
             raise ValueError("work_days must be weekday numbers 0 (Mon) to 6 (Sun)")
         # keep both commutes inside the same calendar day
@@ -53,15 +53,15 @@ class DriverProfile:
         return timedelta(minutes=self.commute_minutes)
 
     @property
-    def trip_kwh(self) -> float:
-        """Energy used by one one-way commute."""
-        return self.commute_miles * self.kwh_per_mile
+    def trip_miles(self) -> float:
+        """Distance of one one-way commute."""
+        return self.commute_miles
 
     def works_on(self, d: date) -> bool:
         return d.weekday() in self.work_days
 
-    def daily_kwh(self, d: date) -> float:
-        return 2 * self.trip_kwh if self.works_on(d) else 0.0
+    def daily_miles(self, d: date) -> float:
+        return 2 * self.trip_miles if self.works_on(d) else 0.0
 
     # ----------------------------------------------------------- schedule
     def segments(self, d: date) -> list[tuple[datetime, datetime, Location]]:
@@ -106,8 +106,8 @@ class DriverProfile:
             return 0.0
         return sum(o for o, loc, _ in self._overlaps(start, end) if loc is location) / total
 
-    def driving_kwh(self, start: datetime, end: datetime) -> float:
-        """Energy used by driving during [start, end)."""
-        return sum(self.trip_kwh * o / length
+    def driving_miles(self, start: datetime, end: datetime) -> float:
+        """Miles driven during [start, end)."""
+        return sum(self.trip_miles * o / length
                    for o, loc, length in self._overlaps(start, end)
                    if loc is Location.DRIVING)

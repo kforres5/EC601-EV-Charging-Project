@@ -20,10 +20,13 @@ class EV:
     departure_time: Optional[datetime] = None  # not enforced yet
     strategy: Optional["Strategy"] = None    # RL / centralized / random plug in here
     driver: Optional["DriverProfile"] = None  # daily schedule; None = old one-visit behaviour
+    kwh_per_mile: float = 0.30               # driving efficiency (energy per mile)
 
     def __post_init__(self) -> None:
         if self.battery_kwh <= 0:
             raise ValueError("battery_kwh must be positive")
+        if self.kwh_per_mile <= 0:
+            raise ValueError("kwh_per_mile must be positive")
         for name in ("soc", "required_soc"):
             if not 0.0 <= getattr(self, name) <= 1.0:
                 raise ValueError(f"{name} must be in [0, 1]")
@@ -31,6 +34,7 @@ class EV:
         self.energy_drawn_kwh = 0.0          # grid-side, what gets billed
         self.cost = 0.0
         self.energy_driven_kwh = 0.0         # used by driving
+        self.miles_driven = 0.0
         self.shortfall_kwh = 0.0             # driving energy the battery didn't have
 
     @property
@@ -54,3 +58,9 @@ class EV:
         short = kwh - used
         self.shortfall_kwh += short
         return short
+
+    def drive(self, miles: float) -> float:
+        """Drive `miles`, using miles * kwh_per_mile from the battery.
+        Returns the shortfall in kWh (energy the battery didn't have)."""
+        self.miles_driven += miles
+        return self.use_energy(miles * self.kwh_per_mile)

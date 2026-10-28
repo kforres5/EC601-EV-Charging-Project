@@ -27,6 +27,8 @@ class EVResult:
     shortfall_kwh: float = 0.0          # driving energy the battery didn't have
     hub_departures: int = 0             # times the car left the hub
     departures_below_target: int = 0    # ...with SOC still under required_soc
+    idle_plugged_hours: float = 0.0     # plugged in but not charging (blocking a charger)
+    moves: int = 0                      # times the move-your-car rule moved the car off a charger
 
     @property
     def avg_price_per_kwh(self) -> float:

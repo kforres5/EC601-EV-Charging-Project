@@ -45,6 +45,8 @@ def print_results(cfg: ScenarioConfig, result: SimulationResult) -> None:
         if r.energy_driven_kwh or r.hub_departures:
             print(f"  Driving: {r.energy_driven_kwh:.2f} kWh used, {r.shortfall_kwh:.2f} kWh short; "
                   f"left the hub {r.hub_departures}x, {r.departures_below_target}x below target")
+            print(f"  Charger use: {r.idle_plugged_hours:.2f} h plugged in but idle, "
+                  f"moved off the charger {r.moves}x")
     if len(result.ev_results) > 1:
         print(f"Total cost: ${result.total_cost:.2f}")
 

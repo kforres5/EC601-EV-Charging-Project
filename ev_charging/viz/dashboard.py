@@ -148,6 +148,10 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
                 elif state is EVState.DRIVING:
                     ax_gantt.broken_barh([(start, width)], (y - 0.06, 0.12),
                                          facecolors=c, edgecolors="none")
+                elif state is EVState.PARKED:
+                    ax_gantt.broken_barh([(start, width)], (y - 0.06, 0.12),
+                                         facecolors="none", edgecolors=c, lw=1,
+                                         linestyle=(0, (1, 1.5)))
         ax_gantt.set_yticks(range(n), list(reversed(ev_ids)))
         ax_gantt.set_ylim(-0.7, n - 0.3)
         ax_gantt.grid(False)
@@ -160,9 +164,11 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
         ]
         if any(s.state is EVState.DRIVING for r in tl for s in r.evs):
             legend.append(Line2D([], [], color=style.MUTED, lw=3, label="driving"))
+        if any(s.state is EVState.PARKED for r in tl for s in r.evs):
+            legend.append(Patch(facecolor="none", edgecolor=style.MUTED, linestyle=":",
+                                label="moved off charger"))
         legend.append(Patch(facecolor=style.PEAK_BAND, label="on-peak hours"))
-        ax_gantt.legend(handles=legend, loc="lower right", bbox_to_anchor=(1.0, 1.0),
-                        ncols=len(legend), fontsize=8, borderaxespad=0.2)
+        fig.legend(handles=legend, loc="outside lower center", ncols=len(legend), fontsize=8)
 
         # shared time axis
         locator = mdates.AutoDateLocator(minticks=5, maxticks=12)

@@ -27,6 +27,8 @@ def main() -> None:
     ap.add_argument("--start", default="2025-07-07", help="start date (YYYY-MM-DD), 00:00")
     ap.add_argument("--soc", type=float, default=0.5, help="starting state of charge (0-1)")
     ap.add_argument("--target", type=float, default=0.8, help="charge up to this SOC (0-1)")
+    ap.add_argument("--move-window", type=int, default=60,
+                    help="minutes to move a full car off a work charger; -1 turns the rule off")
     add_viz_args(ap, default_name="commute")
     args = ap.parse_args()
 
@@ -34,18 +36,22 @@ def main() -> None:
     cfg = ScenarioConfig(
         start=start, end=start + timedelta(days=args.days),
         num_chargers=args.chargers, hub_location=args.hub,
+        move_window_minutes=None if args.move_window < 0 else args.move_window,
         # energy price for the hub's customer class (driver-facing prices come later)
         customer_class="small_commercial" if args.hub == "work" else "residential",
     )
     d = cfg.driver
     print(f"Driver schedule: work {d.work_start:%H:%M}-{d.work_end:%H:%M} on weekdays "
           f"{list(d.work_days)}, commute {d.commute_miles:g} mi / {d.commute_minutes} min each way "
-          f"({d.trip_kwh:.2f} kWh per trip)")
+          f"({d.trip_miles * cfg.kwh_per_mile:.2f} kWh per trip at {cfg.kwh_per_mile:g} kWh/mi)")
+    rule_on = cfg.move_window_minutes is not None and cfg.hub_location in cfg.move_rule_at
+    print("Move-your-car rule: " + (f"move within {cfg.move_window_minutes} min of reaching target"
+                                    if rule_on else "off"))
 
     sim = Simulation(cfg)
     for i in range(1, args.evs + 1):
         sim.add_ev(EV(f"ev-{i}", cfg.battery_kwh, soc=args.soc, required_soc=args.target,
-                      driver=cfg.driver))
+                      driver=cfg.driver, kwh_per_mile=cfg.kwh_per_mile))
     result = sim.run()
     print_results(cfg, result)
     render(result, args)

@@ -22,6 +22,7 @@ class EVState(str, Enum):
     WAITING = "waiting"     # at the hub, no free charger
     CHARGING = "charging"   # plugged in and drawing power
     IDLE = "idle"           # plugged in but not drawing power (full, or strategy waited)
+    PARKED = "parked"       # at the hub but moved off the charger (move-your-car rule)
     DONE = "done"           # reached required SOC and left for good (EVs without a driver)
 
 
