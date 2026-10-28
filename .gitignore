@@ -1,0 +1,14 @@
+# Python bytecode caches (every folder, incl. ev_charging/, strategies/, viz/)
+__pycache__/
+*.py[cod]
+
+# Simulation outputs (dashboards, GIFs)
+outputs/
+
+# Test and environment folders
+.pytest_cache/
+.venv/
+
+# OS junk files
+.DS_Store
+Thumbs.db
