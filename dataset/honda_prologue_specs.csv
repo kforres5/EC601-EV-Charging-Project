@@ -1,0 +1,9 @@
+parameter,value,unit,trim,confidence,source
+vehicle,Honda Prologue,,AWD,,
+energy_consumption_combined,0.34,kWh/mile,AWD,sourced (user-read),"U.S. DOE and EPA. Fuel Economy Data (vehicles.csv). https://www.fueleconomy.gov/feg/download.shtml. Accessed 2026-10-21. Column combE divided by 100. ADD row id and model year."
+max_AC_charge_rate,11.5,kW,2024 FWD listing (assumed same for AWD),sourced (user-read; secondary),"GreenCarsCompare. Honda Prologue FWD 2024 FAQ. https://greencarscompare.com/global/car/honda-prologue-fwd-2024/faq/. Accessed 2026-10-21."
+battery_capacity_gross,93,kWh,AWD,sourced (chart title),"EVKX. Honda Prologue AWD charging curve. https://evkx.net/models/honda/prologue/prologue_awd/chargingcurve/. Accessed 2026-10-21."
+battery_capacity_effective,91,kWh,AWD,sourced (derived),"Cumulative energy at 100% SoC in the EVKX charging-curve table."
+max_DC_charge_rate,155,kW,AWD,sourced,"EVKX. Honda Prologue AWD charging curve (Optimal). https://evkx.net/models/honda/prologue/prologue_awd/chargingcurve/. Accessed 2026-10-21."
+DC_10_to_80_percent_time,33.9,minutes,AWD,sourced (derived),"Computed from EVKX time column: 00:38:03 minus 00:04:07."
+dc_charge_curve,see honda_prologue_dc_curve.csv,kW vs SoC,AWD,sourced,"EVKX. Honda Prologue AWD 93 kWh charging curve (Optimal). https://evkx.net/models/honda/prologue/prologue_awd/chargingcurve/. Accessed 2026-10-21."
