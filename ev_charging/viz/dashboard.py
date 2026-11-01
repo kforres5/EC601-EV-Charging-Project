@@ -29,10 +29,16 @@ def _shade_peaks(ax, spans) -> None:
         ax.axvspan(a, b, color=style.PEAK_BAND, zorder=0, lw=0)
 
 
-def _end_label(ax, x, y, text, color) -> None:
-    ax.annotate(text, (x, y), xytext=(6, 0), textcoords="offset points",
-                va="center", fontsize=8, color=style.INK_2)
-    ax.plot([x], [y], marker="o", ms=4, color=color, zorder=4)
+def _end_labels(ax, x, items, min_gap) -> None:
+    """Label line ends at x. items: (y, text, color). Labels closer than min_gap
+    (data units) are pushed apart upward so they never overlap."""
+    last = None
+    for y, text, color in sorted(items):
+        y_text = y if last is None else max(y, last + min_gap)
+        ax.plot([x], [y], marker="o", ms=4, color=color, zorder=4)
+        ax.annotate(text, (x, y_text), xytext=(6, 0), textcoords="offset points",
+                    va="center", fontsize=8, color=style.INK_2, annotation_clip=False)
+        last = y_text
 
 
 def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figure:
@@ -45,6 +51,7 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
     times = [r.time for r in tl]
     spans = style.peak_spans(tl)
     dt = style.step_delta(tl)
+    span = tl[-1].time - tl[0].time
     hub_kw = (result.config.num_chargers * result.config.charger_kw) if result.config else None
 
     with matplotlib.rc_context(style.rc_params()):
@@ -72,9 +79,15 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
             _shade_peaks(ax, spans)
 
         # 1. price
-        ax_price.step(times, [r.price for r in tl], where="post", color=style.INK_2, lw=1.6)
-        ax_price.set_title("Electricity price ($/kWh)")
-        ax_price.set_ylim(bottom=0)
+        driver_px = [r.price for r in tl]
+        site_px = [r.utility_price if r.utility_price is not None else r.price for r in tl]
+        ax_price.step(times, driver_px, where="post", color=style.INK_2, lw=1.6, label="drivers pay")
+        if any(abs(a - b) > 1e-9 for a, b in zip(driver_px, site_px)):
+            ax_price.step(times, site_px, where="post", color=style.MUTED, lw=1.2,
+                          ls=(0, (4, 2)), label="site pays utility (supply + delivery)")
+            ax_price.legend(loc="upper right")
+        ax_price.set_title("Price ($/kWh)")
+        ax_price.set_ylim(0, max(driver_px + site_px) * 1.35)   # room for the legend
         if spans:
             a, b = spans[0]
             ax_price.text(a + (b - a) / 2, 1.0, "on-peak", transform=ax_price.get_xaxis_transform(),
@@ -108,10 +121,11 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
                 if soc[-1] == soc[-1]:   # skip NaN (car never arrived)
                     soc_ends.setdefault(f"{soc[-1]:.0f}%", []).append((ev_id, soc[-1], c))
                 cost_ends.setdefault(f"${cost[-1]:.2f}", []).append((ev_id, cost[-1], c))
-        for ax, ends in ((ax_soc, soc_ends), (ax_cost, cost_ends)):
-            for text, evs in ends.items():
-                names = ", ".join(e for e, _, _ in evs)
-                _end_label(ax, times[-1], evs[0][1], f"{names} {text}", evs[0][2])
+        max_cost = max([r.cost for r in result.ev_results] + [1e-9])
+        for ax, ends, gap in ((ax_soc, soc_ends, 9.0), (ax_cost, cost_ends, 0.09 * max_cost)):
+            items = [(evs[0][1], f"{', '.join(e for e, _, _ in evs)} {text}", evs[0][2])
+                     for text, evs in ends.items()]
+            _end_labels(ax, times[-1], items, gap)
         ax_soc.set_ylim(0, 105)
         ax_soc.set_title("State of charge (%)")
         ax_cost.set_ylim(bottom=0)
@@ -132,7 +146,7 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
                 if state is EVState.CHARGING:
                     ax_gantt.broken_barh([(start, width)], (y - 0.34, 0.68),
                                          facecolors=c, edgecolors=style.SURFACE, lw=1)
-                    if charger is not None:
+                    if charger is not None and width >= span * 0.03:   # skip tiny bars
                         mid = start + width / 2
                         ax_gantt.text(mid, y, f"C{charger + 1}", ha="center", va="center",
                                       fontsize=7, color="white", fontweight="bold",

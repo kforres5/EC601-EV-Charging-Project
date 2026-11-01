@@ -21,14 +21,18 @@ class Location(str, Enum):
     HOME = "home"
     WORK = "work"
     DRIVING = "driving"
+    PUBLIC = "public"       # at a public charging station (CommuteSimulation detours)
 
 
 @dataclass(frozen=True)
 class DriverProfile:
-    work_start: time = time(9, 0)
-    work_end: time = time(17, 0)
-    commute_miles: float = 15.0          # one way
-    commute_minutes: int = 30            # one way
+    """Defaults are weighted medians of weekday drive-alone commuters in the
+    2022 NHTS (see scripts/build_nhts_commuters.py and ev_charging/nhts.py,
+    which can also sample real commuters' schedules)."""
+    work_start: time = time(7, 45)       # arrive at work
+    work_end: time = time(16, 30)        # leave work
+    commute_miles: float = 10.5          # one way
+    commute_minutes: int = 25            # one way
     work_days: tuple[int, ...] = (0, 1, 2, 3, 4)   # Mon=0 .. Sun=6
 
     def __post_init__(self) -> None:

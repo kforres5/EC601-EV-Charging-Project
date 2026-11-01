@@ -8,10 +8,16 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .driver import DriverProfile
     from .strategies.base import Strategy
+    from .vehicle import VehicleSpec
+
+CHARGER_KINDS = ("AC", "DC")
+_DC_SLICE_HOURS = 1 / 60      # DC charging is integrated minute by minute (power follows SOC)
 
 
 @dataclass
 class EV:
+    """One electric vehicle. Use EV.from_vehicle() to take battery size,
+    efficiency and charging limits from a VehicleSpec."""
     ev_id: str
     battery_kwh: float
     soc: float = 0.0                         # fraction 0..1
@@ -21,6 +27,7 @@ class EV:
     strategy: Optional["Strategy"] = None    # RL / centralized / random plug in here
     driver: Optional["DriverProfile"] = None  # daily schedule; None = old one-visit behaviour
     kwh_per_mile: float = 0.30               # driving efficiency (energy per mile)
+    vehicle: Optional["VehicleSpec"] = None  # charging limits (max AC kW, DC curve); None = no car limit
 
     def __post_init__(self) -> None:
         if self.battery_kwh <= 0:
@@ -64,3 +71,35 @@ class EV:
         Returns the shortfall in kWh (energy the battery didn't have)."""
         self.miles_driven += miles
         return self.use_energy(miles * self.kwh_per_mile)
+
+    @classmethod
+    def from_vehicle(cls, ev_id: str, vehicle: "VehicleSpec", **kwargs) -> "EV":
+        kwargs.setdefault("battery_kwh", vehicle.battery_kwh)
+        kwargs.setdefault("kwh_per_mile", vehicle.kwh_per_mile)
+        return cls(ev_id=ev_id, vehicle=vehicle, **kwargs)
+
+    def charge_capacity_kwh(self, charger_kw: float, kind: str, hours: float,
+                            efficiency: float = 1.0) -> float:
+        """Battery-side kWh this car can take in `hours` on a charger of
+        `charger_kw` (grid side), stopping at required_soc. Doesn't change the car.
+
+        AC: power = min(charger, car's onboard charger limit).
+        DC: power = min(charger, car's DC curve at the current SOC), re-checked
+            every minute as the battery fills."""
+        if kind not in CHARGER_KINDS:
+            raise ValueError(f"charger kind must be one of {CHARGER_KINDS}")
+        need = self.energy_needed_kwh
+        if need <= 0 or hours <= 0:
+            return 0.0
+        if kind == "AC":
+            kw = min(charger_kw, self.vehicle.max_ac_kw) if self.vehicle else charger_kw
+            return min(kw * hours * efficiency, need)
+        stored, soc, left = 0.0, self.soc, hours
+        while left > 1e-12 and stored < need - 1e-12:
+            h = min(_DC_SLICE_HOURS, left)
+            kw = min(charger_kw, self.vehicle.dc_power_at(soc)) if self.vehicle else charger_kw
+            e = min(kw * h * efficiency, need - stored)
+            stored += e
+            soc += e / self.battery_kwh
+            left -= h
+        return stored

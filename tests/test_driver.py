@@ -7,10 +7,11 @@ from ev_charging.driver import DriverProfile, Location
 from ev_charging.ev import EV
 from ev_charging.recorder import EVState
 from ev_charging.simulation import Simulation
+from tests.helpers import SIMPLE_DRIVER, simple_cfg
 
 MON = datetime(2025, 7, 7)          # a Monday
 SAT = datetime(2025, 7, 12)
-D = DriverProfile()                 # 9-17, 15 mi / 30 min each way
+D = SIMPLE_DRIVER                   # 9-17, 15 mi / 30 min each way
 
 
 # ------------------------------------------------------------ driver profile
@@ -55,7 +56,7 @@ def test_bad_kwh_per_mile_rejected():
 
 
 def test_fraction_at_partial_step():
-    p = DriverProfile(work_end=time(17, 10))
+    p = DriverProfile(work_start=time(9), work_end=time(17, 10))
     f = p.fraction_at(Location.WORK, MON.replace(hour=17), MON.replace(hour=17, minute=15))
     assert f == pytest.approx(10 / 15)
 
@@ -76,7 +77,7 @@ def test_bad_profiles_rejected(kwargs):
 def run(n_evs=1, chargers=1, hub="work", days=1, soc=0.5, target=0.8, start=MON,
         move_window=None, kwh_per_mile=0.30):
     """Move-your-car rule is OFF unless move_window (minutes) is given."""
-    cfg = ScenarioConfig(start=start, end=start + timedelta(days=days),
+    cfg = simple_cfg(start=start, end=start + timedelta(days=days),
                          num_chargers=chargers, hub_location=hub, price_csv=None,
                          move_window_minutes=move_window)
     sim = Simulation(cfg)
@@ -138,7 +139,7 @@ def test_run_lasts_until_end_with_drivers():
 
 
 def test_driverless_evs_unchanged():
-    cfg = ScenarioConfig(price_csv=None)
+    cfg = simple_cfg(price_csv=None)
     sim = Simulation(cfg)
     sim.add_ev(EV("x", cfg.battery_kwh, soc=0.0, required_soc=1.0))
     r = sim.run()

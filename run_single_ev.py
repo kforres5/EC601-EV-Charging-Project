@@ -1,5 +1,6 @@
-"""Base scenario: 1 EV at 0% SOC, 1 charger, cost to charge to 100%
-using Eversource pricing. Edit assumptions in ev_charging/config.py.
+"""Base scenario: 1 EV (Honda Prologue) at 0% SOC on 1 home Level 2 charger,
+cost to charge to 100% with Eversource CT residential supply + Rate 7 delivery.
+Edit assumptions in ev_charging/config.py.
 
     python run_single_ev.py                 # print results only
     python run_single_ev.py --plot          # + outputs/single_ev_dashboard.png
@@ -29,10 +30,18 @@ def add_viz_args(ap: argparse.ArgumentParser, default_name: str) -> None:
 
 
 def print_results(cfg: ScenarioConfig, result: SimulationResult) -> None:
-    print(f"Scenario: {cfg.customer_class}, start {cfg.start}, {cfg.num_chargers} x "
-          f"{cfg.charger_kw} kW charger(s), {cfg.battery_kwh} kWh batteries")
+    v = cfg.vehicle
+    print(f"Scenario: {cfg.customer_class} supply, Eversource CT Rate {cfg.site_rate}, start {cfg.start}, "
+          f"{cfg.num_chargers} x {cfg.charger_kw:g} kW {cfg.charger_type} charger(s)")
+    print(f"Vehicle: {v.name}, {cfg.battery_kwh:g} kWh, {cfg.kwh_per_mile:g} kWh/mi, "
+          f"max {v.max_ac_kw:g} kW AC / {v.max_dc_kw:g} kW DC")
     print(f"Peak window: {cfg.peak.start_hour}:00-{cfg.peak.end_hour}:00"
           f"{' weekdays' if cfg.peak.weekdays_only else ' every day'}")
+    if cfg.driver_price_per_kwh is not None:
+        print(f"Driver price: flat ${cfg.driver_price_per_kwh:.3f}/kWh")
+    else:
+        print("Driver price: pass-through of the utility price (supply"
+              + (" + delivery)" if cfg.include_delivery else ", no delivery)"))
     for r in result.ev_results:
         print(f"EV {r.ev_id}: SOC {r.start_soc:.0%} -> {r.final_soc:.0%}")
         if r.charge_finished is not None or not (r.energy_driven_kwh or r.hub_departures):
@@ -49,6 +58,22 @@ def print_results(cfg: ScenarioConfig, result: SimulationResult) -> None:
                   f"moved off the charger {r.moves}x")
     if len(result.ev_results) > 1:
         print(f"Total cost: ${result.total_cost:.2f}")
+    print_site_bill(result)
+
+
+def print_site_bill(result: SimulationResult) -> None:
+    if not result.site_bills:
+        return
+    print("Site utility bill (what the hub pays Eversource):")
+    for b in result.site_bills:
+        days = b.hours_covered / 24
+        tier = f", EV-L tier {b.tier} (load factor {b.load_factor:.0%})" if b.tier else ""
+        print(f"  {b.month} ({days:.1f} of {b.hours_in_month / 24:.0f} days{tier}): "
+              f"{b.energy_kwh:.1f} kWh, peak {b.peak_kw:.1f} kW | supply ${b.supply_cost:.2f}, "
+              f"delivery ${b.delivery_cost:.2f}, demand ${b.demand_cost:.2f}, "
+              f"customer ${b.customer_cost:.2f} -> ${b.total:.2f}")
+    print(f"  Drivers paid ${result.total_cost:.2f}, site paid ${result.site_cost:.2f}, "
+          f"margin ${result.site_margin:.2f}")
 
 
 def render(result: SimulationResult, args: argparse.Namespace) -> None:
@@ -78,9 +103,10 @@ def main() -> None:
     add_viz_args(ap, default_name="single_ev")
     args = ap.parse_args()
 
-    cfg = ScenarioConfig()
+    cfg = ScenarioConfig(hub_location="home")      # one car on a home charger (Rate 7)
     sim = Simulation(cfg)
-    sim.add_ev(EV("ev-1", battery_kwh=cfg.battery_kwh, soc=0.0, required_soc=1.0))
+    sim.add_ev(EV.from_vehicle("ev-1", cfg.vehicle, battery_kwh=cfg.battery_kwh, soc=0.0,
+                               required_soc=1.0))
     result = sim.run()
     print_results(cfg, result)
     render(result, args)

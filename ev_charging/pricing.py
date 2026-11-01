@@ -96,3 +96,19 @@ def build_price_schedule(cfg: ScenarioConfig) -> PriceSchedule:
     if cfg.price_csv is not None:
         return EversourcePriceSchedule(cfg.price_csv, cfg.customer_class, cfg.peak)
     return FlatTOUPriceSchedule(cfg.fallback_on_peak_price, cfg.fallback_off_peak_price, cfg.peak)
+
+
+class DeliveredPriceSchedule:
+    """Supply price plus a delivery charge that depends on on/off-peak."""
+
+    def __init__(self, supply: PriceSchedule, on_peak_delivery: float, off_peak_delivery: float) -> None:
+        self.supply = supply
+        self.on_peak_delivery = on_peak_delivery
+        self.off_peak_delivery = off_peak_delivery
+
+    def is_on_peak(self, t: datetime) -> bool:
+        return self.supply.is_on_peak(t)
+
+    def price_at(self, t: datetime) -> float:
+        on = self.supply.is_on_peak(t)
+        return self.supply.price_at(t) + (self.on_peak_delivery if on else self.off_peak_delivery)

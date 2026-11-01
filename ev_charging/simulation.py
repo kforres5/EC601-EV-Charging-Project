@@ -19,7 +19,16 @@ are no EVs with drivers.
 Locations are sampled at the start of each timestep: a car that arrives
 mid-step plugs in at the next step. Charging is scaled by the share of the
 step the car is actually at the hub, so a car leaving mid-step only charges
-for the time it was there.
+for the time it was there. Charging power is the charger rating, capped by the
+car's limits (onboard AC charger, or the DC curve at the current SOC).
+
+Money:
+  - supply price: energy price from the CSV for cfg.customer_class
+  - utility price: supply + delivery $/kWh of cfg.site_rate (if include_delivery)
+  - driver price: cfg.driver_price_per_kwh if set, else the utility price.
+    EV costs (EVResult.cost) use the driver price.
+  - site bill: the hub's monthly utility bill (supply, delivery, demand and
+    customer charges) from the hub's metered load; see tariffs.py.
 """
 from __future__ import annotations
 
@@ -31,9 +40,10 @@ from .config import ScenarioConfig
 from .driver import Location
 from .ev import EV
 from .metrics import EVResult, SimulationResult
-from .pricing import PriceSchedule, build_price_schedule
+from .pricing import DeliveredPriceSchedule, PriceSchedule, build_price_schedule
 from .recorder import EVSnapshot, EVState, TimelineRecorder
 from .station import ChargingStation
+from .tariffs import DeliveryRate, SiteMeter, get_rate
 from .strategies.base import AlwaysCharge, Strategy
 
 
@@ -42,8 +52,20 @@ class Simulation:
                  record: bool = True) -> None:
         self.cfg = cfg
         self.clock = SimClock(cfg.start, cfg.end, cfg.step_minutes)
-        self.prices = prices or build_price_schedule(cfg)
-        self.station = ChargingStation(cfg.num_chargers, cfg.charger_kw)
+        self.prices = prices or build_price_schedule(cfg)          # energy supply
+        self.site_rate = get_rate(cfg.site_rate)
+        if cfg.include_delivery and isinstance(self.site_rate, DeliveryRate):
+            self.utility_prices: PriceSchedule = DeliveredPriceSchedule(
+                self.prices, self.site_rate.on_peak_delivery, self.site_rate.off_peak_delivery)
+        else:
+            self.utility_prices = self.prices
+        if (cfg.driver_price_per_kwh is None and cfg.include_delivery
+                and not isinstance(self.site_rate, DeliveryRate)):
+            raise ValueError(f"Rate {cfg.site_rate} delivery depends on the monthly load factor, "
+                             "so drivers can't be charged a pass-through price; "
+                             "set driver_price_per_kwh")
+        self.meter = SiteMeter()
+        self.station = ChargingStation(cfg.num_chargers, cfg.charger_kw, cfg.charger_type)
         self.hub_location = Location(cfg.hub_location)
         self.evs: list[EV] = []
         self.default_strategy: Strategy = AlwaysCharge()
@@ -95,11 +117,17 @@ class Simulation:
     def _driver_at_hub(self, ev: EV, t: datetime) -> bool:
         return ev.driver.location_at(t) is self.hub_location
 
+    def _prices_at(self, t: datetime) -> tuple[float, float, float, bool]:
+        """(supply, utility, driver) $/kWh and whether it's on-peak."""
+        supply = self.prices.price_at(t)
+        utility = self.utility_prices.price_at(t)
+        driver = self.cfg.driver_price_per_kwh if self.cfg.driver_price_per_kwh is not None else utility
+        return supply, utility, driver, self.prices.is_on_peak(t)
+
     def _step(self) -> None:
         now = self.clock.now
         step_end = now + self.clock.step
-        price = self.prices.price_at(now)
-        on_peak = self.prices.is_on_peak(now)
+        supply, utility, price, on_peak = self._prices_at(now)
         before = {ev.ev_id: (ev.soc, ev.cost) for ev in self.evs}
         was_done = set(self._finished_at)
 
@@ -150,7 +178,8 @@ class Simulation:
                 continue
             share = ev.driver.fraction_at(self.hub_location, now, step_end) if ev.driver else 1.0
             eff = self.cfg.charging_efficiency
-            stored = min(charger.rate_kw * self.clock.step_hours * share * eff, ev.energy_needed_kwh)
+            stored = ev.charge_capacity_kwh(charger.rate_kw, charger.kind,
+                                            self.clock.step_hours * share, eff)
             if stored <= 0:
                 continue
             drawn = stored / eff
@@ -176,6 +205,8 @@ class Simulation:
         for ev_id in plugged:
             if ev_id not in drawn_kwh:
                 self._idle_hours[ev_id] += self.clock.step_hours
+
+        self.meter.record(now, self.clock.step, sum(drawn_kwh.values()), on_peak, supply)
 
         # 5. driving drains the battery
         for ev in self.evs:
@@ -211,7 +242,7 @@ class Simulation:
                     soc=soc, power_kw=drawn_kwh.get(ev.ev_id, 0.0) / self.clock.step_hours,
                     cost=cost, location=location,
                 ))
-            self.recorder.record(now, price, on_peak, snaps)
+            self.recorder.record(now, price, on_peak, snaps, supply, utility)
 
     def _record_closing_snapshot(self) -> None:
         if self.recorder is None or not self.evs:
@@ -238,11 +269,16 @@ class Simulation:
                                     ev.soc, 0.0, ev.cost, location))
         # Price lookup can fail past the dataset's last day; the closing row only needs a label.
         try:
-            price, on_peak = self.prices.price_at(now), self.prices.is_on_peak(now)
+            supply, utility, price, on_peak = self._prices_at(now)
         except KeyError:
             last = self.recorder.records[-1] if self.recorder.records else None
-            price, on_peak = (last.price, last.on_peak) if last else (0.0, False)
-        self.recorder.record(now, price, on_peak, snaps)
+            if last:
+                supply, utility, price, on_peak = (last.supply_price, last.utility_price,
+                                                   last.price, last.on_peak)
+            else:
+                supply = utility = price = 0.0
+                on_peak = False
+        self.recorder.record(now, price, on_peak, snaps, supply, utility)
 
     def _collect(self, steps: int) -> SimulationResult:
         return SimulationResult(
@@ -271,4 +307,5 @@ class Simulation:
             ended_at=self.clock.now,
             config=self.cfg,
             timeline=list(self.recorder.records) if self.recorder else [],
+            site_bills=self.meter.bills(self.site_rate, self.cfg.prorate_fixed_charges),
         )

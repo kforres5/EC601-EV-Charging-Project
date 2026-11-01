@@ -25,12 +25,14 @@ def main() -> None:
     args = ap.parse_args()
 
     start = datetime(2025, 7, 1, 16, 0)   # evening arrivals, through on-peak into off-peak
-    cfg = ScenarioConfig(start=start, end=start + timedelta(days=2), num_chargers=args.chargers)
+    cfg = ScenarioConfig(start=start, end=start + timedelta(days=2), num_chargers=args.chargers,
+                         customer_class="small_commercial")   # a shared hub: Rate 27
     sim = Simulation(cfg)
     rng = random.Random(args.seed)
     arrivals = sorted(start + timedelta(minutes=15 * rng.randint(0, 12)) for _ in range(args.evs))
     for i, t in enumerate(arrivals, 1):   # added in arrival order = first come, first served
-        sim.add_ev(EV(f"ev-{i}", cfg.battery_kwh, soc=round(rng.uniform(0.2, 0.6), 2),
+        sim.add_ev(EV.from_vehicle(f"ev-{i}", cfg.vehicle, battery_kwh=cfg.battery_kwh,
+                                   soc=round(rng.uniform(0.2, 0.6), 2),
                       required_soc=0.8, arrival_time=t))
     result = sim.run()
     print_results(cfg, result)

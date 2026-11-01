@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .config import ScenarioConfig
     from .recorder import StepRecord
+    from .tariffs import MonthlyBill
 
 
 @dataclass
@@ -42,7 +43,20 @@ class SimulationResult:
     ended_at: datetime
     config: Optional["ScenarioConfig"] = None
     timeline: list["StepRecord"] = field(default_factory=list)   # empty if recording is off
+    site_bills: list["MonthlyBill"] = field(default_factory=list)  # the hub's utility bill, by month
 
     @property
     def total_cost(self) -> float:
+        """What all drivers paid for charging."""
         return sum(r.cost for r in self.ev_results)
+
+    @property
+    def site_cost(self) -> float:
+        """What the hub paid the utility (supply + delivery + demand + customer charges)."""
+        return sum(b.total for b in self.site_bills)
+
+    @property
+    def site_margin(self) -> float:
+        """Drivers' payments minus the hub's utility bill (the owner's profit before
+        network, maintenance and other costs)."""
+        return self.total_cost - self.site_cost
