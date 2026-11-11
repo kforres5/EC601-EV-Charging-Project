@@ -15,6 +15,7 @@ from typing import Optional
 import matplotlib
 import matplotlib.dates as mdates
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from ..metrics import SimulationResult
@@ -28,10 +29,16 @@ def _shade_peaks(ax, spans) -> None:
         ax.axvspan(a, b, color=style.PEAK_BAND, zorder=0, lw=0)
 
 
-def _end_label(ax, x, y, text, color) -> None:
-    ax.annotate(text, (x, y), xytext=(6, 0), textcoords="offset points",
-                va="center", fontsize=8, color=style.INK_2)
-    ax.plot([x], [y], marker="o", ms=4, color=color, zorder=4)
+def _end_labels(ax, x, items, min_gap) -> None:
+    """Label line ends at x. items: (y, text, color). Labels closer than min_gap
+    (data units) are pushed apart upward so they never overlap."""
+    last = None
+    for y, text, color in sorted(items):
+        y_text = y if last is None else max(y, last + min_gap)
+        ax.plot([x], [y], marker="o", ms=4, color=color, zorder=4)
+        ax.annotate(text, (x, y_text), xytext=(6, 0), textcoords="offset points",
+                    va="center", fontsize=8, color=style.INK_2, annotation_clip=False)
+        last = y_text
 
 
 def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figure:
@@ -44,6 +51,7 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
     times = [r.time for r in tl]
     spans = style.peak_spans(tl)
     dt = style.step_delta(tl)
+    span = tl[-1].time - tl[0].time
     hub_kw = (result.config.num_chargers * result.config.charger_kw) if result.config else None
 
     with matplotlib.rc_context(style.rc_params()):
@@ -56,19 +64,30 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
 
         # headline
         total = result.total_cost
-        done = sum(r.reached_required_soc for r in result.ev_results)
+        departures = sum(r.hub_departures for r in result.ev_results)
+        if departures:   # commuting drivers: judge each time a car leaves the hub
+            ok = departures - sum(r.departures_below_target for r in result.ev_results)
+            goal = f"{ok}/{departures} hub departures at target charge"
+        else:
+            done = sum(r.reached_required_soc for r in result.ev_results)
+            goal = f"{done}/{n} reached target charge"
         fig.suptitle(
-            f"{n} EV{'s' if n != 1 else ''} · {done}/{n} reached target charge · "
-            f"total cost ${total:,.2f}",
+            f"{n} EV{'s' if n != 1 else ''} · {goal} · total cost ${total:,.2f}",
             x=0.01, ha="left", fontsize=13, fontweight="bold", color=style.INK)
 
         for ax in axes[:4]:
             _shade_peaks(ax, spans)
 
         # 1. price
-        ax_price.step(times, [r.price for r in tl], where="post", color=style.INK_2, lw=1.6)
-        ax_price.set_title("Electricity price ($/kWh)")
-        ax_price.set_ylim(bottom=0)
+        driver_px = [r.price for r in tl]
+        site_px = [r.utility_price if r.utility_price is not None else r.price for r in tl]
+        ax_price.step(times, driver_px, where="post", color=style.INK_2, lw=1.6, label="drivers pay")
+        if any(abs(a - b) > 1e-9 for a, b in zip(driver_px, site_px)):
+            ax_price.step(times, site_px, where="post", color=style.MUTED, lw=1.2,
+                          ls=(0, (4, 2)), label="site pays utility (supply + delivery)")
+            ax_price.legend(loc="upper right")
+        ax_price.set_title("Price ($/kWh)")
+        ax_price.set_ylim(0, max(driver_px + site_px) * 1.35)   # room for the legend
         if spans:
             a, b = spans[0]
             ax_price.text(a + (b - a) / 2, 1.0, "on-peak", transform=ax_price.get_xaxis_transform(),
@@ -88,6 +107,8 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
 
         # 3. SOC  /  4. cumulative cost, one line per EV
         label_lines = n <= style.MAX_DIRECT_LABELS
+        soc_ends: dict[str, list] = {}    # rounded end value -> EVs, so equal lines share a label
+        cost_ends: dict[str, list] = {}
         for i, ev_id in enumerate(ev_ids):
             c = style.ev_color(i, n)
             soc = [style.soc_or_nan(r.snapshot(ev_id)) for r in tl]
@@ -98,8 +119,13 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
             ax_cost.plot(times, cost, color=c, lw=lw, alpha=alpha, label=ev_id)
             if label_lines:
                 if soc[-1] == soc[-1]:   # skip NaN (car never arrived)
-                    _end_label(ax_soc, times[-1], soc[-1], f"{ev_id} {soc[-1]:.0f}%", c)
-                _end_label(ax_cost, times[-1], cost[-1], f"{ev_id} ${cost[-1]:.2f}", c)
+                    soc_ends.setdefault(f"{soc[-1]:.0f}%", []).append((ev_id, soc[-1], c))
+                cost_ends.setdefault(f"${cost[-1]:.2f}", []).append((ev_id, cost[-1], c))
+        max_cost = max([r.cost for r in result.ev_results] + [1e-9])
+        for ax, ends, gap in ((ax_soc, soc_ends, 9.0), (ax_cost, cost_ends, 0.09 * max_cost)):
+            items = [(evs[0][1], f"{', '.join(e for e, _, _ in evs)} {text}", evs[0][2])
+                     for text, evs in ends.items()]
+            _end_labels(ax, times[-1], items, gap)
         ax_soc.set_ylim(0, 105)
         ax_soc.set_title("State of charge (%)")
         ax_cost.set_ylim(bottom=0)
@@ -120,7 +146,7 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
                 if state is EVState.CHARGING:
                     ax_gantt.broken_barh([(start, width)], (y - 0.34, 0.68),
                                          facecolors=c, edgecolors=style.SURFACE, lw=1)
-                    if charger is not None:
+                    if charger is not None and width >= span * 0.03:   # skip tiny bars
                         mid = start + width / 2
                         ax_gantt.text(mid, y, f"C{charger + 1}", ha="center", va="center",
                                       fontsize=7, color="white", fontweight="bold",
@@ -133,6 +159,13 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
                     ax_gantt.broken_barh([(start, width)], (y - 0.2, 0.4),
                                          facecolors="none", edgecolors=c, lw=1.2,
                                          linestyle=(0, (3, 2)))
+                elif state is EVState.DRIVING:
+                    ax_gantt.broken_barh([(start, width)], (y - 0.06, 0.12),
+                                         facecolors=c, edgecolors="none")
+                elif state is EVState.PARKED:
+                    ax_gantt.broken_barh([(start, width)], (y - 0.06, 0.12),
+                                         facecolors="none", edgecolors=c, lw=1,
+                                         linestyle=(0, (1, 1.5)))
         ax_gantt.set_yticks(range(n), list(reversed(ev_ids)))
         ax_gantt.set_ylim(-0.7, n - 0.3)
         ax_gantt.grid(False)
@@ -142,10 +175,14 @@ def build_dashboard(result: SimulationResult, interactive: bool = False) -> Figu
             Patch(facecolor=style.MUTED, alpha=0.3, hatch="////", edgecolor=style.MUTED,
                   label="plugged in, not charging"),
             Patch(facecolor="none", edgecolor=style.MUTED, linestyle="--", label="waiting for a charger"),
-            Patch(facecolor=style.PEAK_BAND, label="on-peak hours"),
         ]
-        ax_gantt.legend(handles=legend, loc="lower right", bbox_to_anchor=(1.0, 1.0),
-                        ncols=4, fontsize=8, borderaxespad=0.2)
+        if any(s.state is EVState.DRIVING for r in tl for s in r.evs):
+            legend.append(Line2D([], [], color=style.MUTED, lw=3, label="driving"))
+        if any(s.state is EVState.PARKED for r in tl for s in r.evs):
+            legend.append(Patch(facecolor="none", edgecolor=style.MUTED, linestyle=":",
+                                label="moved off charger"))
+        legend.append(Patch(facecolor=style.PEAK_BAND, label="on-peak hours"))
+        fig.legend(handles=legend, loc="outside lower center", ncols=len(legend), fontsize=8)
 
         # shared time axis
         locator = mdates.AutoDateLocator(minticks=5, maxticks=12)

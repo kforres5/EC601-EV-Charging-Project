@@ -6,10 +6,11 @@ from ev_charging.config import ScenarioConfig
 from ev_charging.ev import EV
 from ev_charging.recorder import EVState
 from ev_charging.simulation import Simulation
+from tests.helpers import simple_cfg
 
 
 def single_run(**cfg_kwargs):
-    cfg = ScenarioConfig(**cfg_kwargs)
+    cfg = simple_cfg(**cfg_kwargs)
     sim = Simulation(cfg)
     sim.add_ev(EV("ev-1", cfg.battery_kwh, soc=0.0, required_soc=1.0))
     return sim.run()
@@ -17,7 +18,7 @@ def single_run(**cfg_kwargs):
 
 def fleet_run():
     start = datetime(2025, 7, 1, 16)
-    cfg = ScenarioConfig(start=start, end=start + timedelta(days=2), num_chargers=1)
+    cfg = simple_cfg(start=start, end=start + timedelta(days=2), num_chargers=1)
     sim = Simulation(cfg)
     sim.add_ev(EV("a", cfg.battery_kwh, soc=0.5, required_soc=0.8, arrival_time=start))
     sim.add_ev(EV("b", cfg.battery_kwh, soc=0.5, required_soc=0.8,

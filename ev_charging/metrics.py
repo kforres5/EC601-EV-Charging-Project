@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .config import ScenarioConfig
     from .recorder import StepRecord
+    from .tariffs import MonthlyBill
 
 
 @dataclass
@@ -22,6 +23,13 @@ class EVResult:
     charge_started: Optional[datetime]
     charge_finished: Optional[datetime]
     reached_required_soc: bool
+    # driver-only metrics (0 for EVs without a driver)
+    energy_driven_kwh: float = 0.0
+    shortfall_kwh: float = 0.0          # driving energy the battery didn't have
+    hub_departures: int = 0             # times the car left the hub
+    departures_below_target: int = 0    # ...with SOC still under required_soc
+    idle_plugged_hours: float = 0.0     # plugged in but not charging (blocking a charger)
+    moves: int = 0                      # times the move-your-car rule moved the car off a charger
 
     @property
     def avg_price_per_kwh(self) -> float:
@@ -35,7 +43,20 @@ class SimulationResult:
     ended_at: datetime
     config: Optional["ScenarioConfig"] = None
     timeline: list["StepRecord"] = field(default_factory=list)   # empty if recording is off
+    site_bills: list["MonthlyBill"] = field(default_factory=list)  # the hub's utility bill, by month
 
     @property
     def total_cost(self) -> float:
+        """What all drivers paid for charging."""
         return sum(r.cost for r in self.ev_results)
+
+    @property
+    def site_cost(self) -> float:
+        """What the hub paid the utility (supply + delivery + demand + customer charges)."""
+        return sum(b.total for b in self.site_bills)
+
+    @property
+    def site_margin(self) -> float:
+        """Drivers' payments minus the hub's utility bill (the owner's profit before
+        network, maintenance and other costs)."""
+        return self.total_cost - self.site_cost

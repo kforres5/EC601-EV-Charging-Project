@@ -11,6 +11,7 @@ from .ev import EV
 class Charger:
     charger_id: int
     rate_kw: float
+    kind: str = "AC"                 # "AC" (Level 1/2) or "DC" (fast charger)
     occupied_by: Optional[EV] = None
 
     @property
@@ -19,8 +20,8 @@ class Charger:
 
 
 class ChargingStation:
-    def __init__(self, num_chargers: int, rate_kw: float) -> None:
-        self.chargers = [Charger(i, rate_kw) for i in range(num_chargers)]
+    def __init__(self, num_chargers: int, rate_kw: float, kind: str = "AC") -> None:
+        self.chargers = [Charger(i, rate_kw, kind) for i in range(num_chargers)]
 
     @property
     def num_chargers(self) -> int:
