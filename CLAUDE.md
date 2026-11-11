@@ -1,8 +1,8 @@
 # CLAUDE.md: context for anyone (human or Claude) picking up this project
 
 EC601 team project (Boston University, Fall 2026): **decentralized EV charging with independent
-multi-agent reinforcement learning (MARL)**, compared against random, greedy and centralized
-baselines, in a Python simulation priced with real Eversource Connecticut data.
+multi-agent reinforcement learning (MARL)**, compared against greedy (the simplest baseline) and
+centralized baselines, in a Python simulation priced with real Eversource Connecticut data.
 
 Team: Nuo Lin, Kathryn Forrest, Lidia Berhe. Repo: `kforres5/EC601-EV-Charging-Project`.
 Status, Nov 11 2026: simulation, pricing and two baselines built; RL not started.
@@ -16,7 +16,7 @@ See `team_notes/TODO.md` (organized by module) and the status-colored UML diagra
 - **Mission:** help EV owners cut charging cost by letting each car's agent decide when, where and
   how much to charge, learning on its own with only public information (no shared driver data).
 - **Question:** how close do independent learners get to a centralized optimizer with full
-  information, and how do both compare with simple rules (always charge, random, greedy)?
+  information, and how do both compare with simple rules (greedy, plus always-charge as an uncontrolled reference)?
 - **Key papers:** Rate et al. 2026, *Independent MARL for EV fleets* (arXiv:2606.31347; source of
   the greedy baseline and the ~500-simulated-day PPO training budget); Park & Moon 2022;
   Cakil & Aksoy 2025. Shadow peaks under time-of-use pricing: Bailey et al. (NBER w32886, 2024).
@@ -50,7 +50,7 @@ run_greedy.py      main runner: greedy vs always-charge, home + work + public
 run_commute.py, run_fleet_demo.py, run_single_ev.py   single-hub runners
 scripts/           build_nhts_commuters.py, make_pricing_diagram.py, make_uml_diagram.py
 dataset/           see dataset/Data_info.md; derived/nhts_commuters.csv is generated
-team_notes/        TODO.md, Modeling_Assumptions.md, TEAM.md, SPRINT1.md
+team_notes/        TODO.md, Modeling_Assumptions.md, Centralized_Controller_Plan.md, TEAM.md, SPRINT1.md
 resources/         UML (.drawio + PNG), pricing_data_flow (.svg + PNG)
 tests/             pytest; tests/helpers.py pins round-number configs
 ```
@@ -89,7 +89,7 @@ visit's target) -> 5 drive (battery drains; trip and buffer metrics).
 Strategy interface (`strategies/base.py`): `decide()` (single hub), `wants_charger()` (at work),
 `charge_limit_kwh()` (plugged in), `public_visit()` (at home: go to a station?). A strategy only
 sees `PlanningView`: own SOC, schedule, home charger, posted prices (on-peak one day ahead),
-own work limits. New strategies (random, centralized, MARL) plug in here.
+own work limits. New strategies (centralized, MARL) plug in here. A random baseline was dropped (Nov 11): greedy is the simplest baseline.
 
 - **AlwaysCharge** (uncontrolled): plug in whenever possible, full power to 80%; if home can't
   cover the next 24 h + buffer, fill up at the fastest public station.
@@ -160,7 +160,7 @@ Oct 31 commit, so update it from `main` before building on it.
 
 | Sprint | Dates | Lead | Focus |
 |---|---|---|---|
-| 4 | Nov 9 - 22 | Nuo | centralized + random baselines, RL environment + reward, station pricing |
+| 4 | Nov 9 - 22 | Nuo | centralized baseline, RL environment + reward, station pricing |
 | 5 | Nov 23 - Dec 7 | Lidia & Kathryn | train MARL agents, experiments, final presentation |
 
 If time runs short, drop learning station agents and grid caps first.

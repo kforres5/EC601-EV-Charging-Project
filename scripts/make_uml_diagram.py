@@ -2,6 +2,11 @@
 
     python scripts/make_uml_diagram.py            # overwrites the .drawio in resources/
 
+Boxes are colored by status (see STATUS): green = built, amber = partly built
+(its remaining items are listed in the box), red dashed = not built yet.
+Update a box's `status=` / `todo=` here as work lands, then re-run. Package numbers
+match the sections of team_notes/TODO.md; the progress panel is counted from it.
+
 Re-running replaces any hand edits made in draw.io, so either edit here and
 re-run, or edit the .drawio by hand and stop using this script.
 """
@@ -15,15 +20,14 @@ W = 340          # class box width
 ROW = 24
 HEAD = 30
 
-PALETTE = {      # package colors: (container fill, container stroke, class header fill)
-    "config": ("#fff2cc", "#d6b656"),
-    "data": ("#f5f5f5", "#666666"),
-    "driver": ("#d5e8d4", "#82b366"),
-    "sites": ("#ffe6cc", "#d79b00"),
-    "core": ("#dae8fc", "#6c8ebf"),
-    "strat": ("#e1d5e7", "#9673a6"),
-    "results": ("#f8cecc", "#b85450"),
+PKG_FILL, PKG_STROKE = "#f2f2f2", "#b3b3b3"     # packages are neutral: color = status
+STATUS = {       # header fill, border, body fill
+    "done": ("#d5e8d4", "#82b366", "#ffffff"),
+    "partial": ("#fff2cc", "#d6b656", "#ffffff"),
+    "todo": ("#f8cecc", "#b85450", "#fffafa"),
 }
+TODO_COLOR = "#a33a39"
+AS_OF = "Nov 11, 2026"
 
 cells = []       # xml strings (containers first, then classes, then edges)
 boxes = {}       # id -> (x, y, w, h, package)
@@ -35,10 +39,15 @@ def nid(prefix):
     return f"{prefix}-{_n[0]}"
 
 
-def cls(cid, title, attrs, methods, x, y, pkg, w=W, stereotype=None, planned=False, note=None):
-    """A UML class box: bold name, attributes, a divider, methods."""
-    fill, stroke = PALETTE[pkg]
-    rows = len(attrs) + len(methods) + (1 if attrs and methods else 0) + (1 if note else 0)
+def cls(cid, title, attrs, methods, x, y, pkg, w=W, stereotype=None, planned=False, note=None,
+        status=None, todo=()):
+    """A UML class box: bold name, attributes, a divider, methods, then any
+    remaining work (`todo`, shown as red italic rows)."""
+    status = status or ("todo" if planned else "done")
+    fill, stroke, body = STATUS[status]
+    planned = status == "todo"
+    rows = (len(attrs) + len(methods) + (1 if attrs and methods else 0) + (1 if note else 0)
+            + len(todo))
     h = HEAD + ROW * rows + 6
     label = (f"&laquo;{escape(stereotype)}&raquo;<br>" if stereotype else "") + f"<b>{escape(title)}</b>"
     head = HEAD + (14 if stereotype else 0)
@@ -47,7 +56,7 @@ def cls(cid, title, attrs, methods, x, y, pkg, w=W, stereotype=None, planned=Fal
     style = (f"swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize={head};"
              f"horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;"
              f"marginBottom=0;whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};"
-             f"swimlaneFillColor=#ffffff;fontSize=12;{dash}")
+             f"swimlaneFillColor={body};fontSize=12;strokeWidth={2 if status != 'done' else 1};{dash}")
     cells.append(f'<mxCell id="{cid}" parent="1" style="{style}" value={quoteattr(label)} vertex="1">'
                  f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>')
     yy = head
@@ -73,6 +82,12 @@ def cls(cid, title, attrs, methods, x, y, pkg, w=W, stereotype=None, planned=Fal
         cells.append(f'<mxCell id="{nid(cid)}" parent="{cid}" style="{text}fontStyle=2;fontColor=#666666;" '
                      f'value={quoteattr(escape(note))} vertex="1">'
                      f'<mxGeometry y="{yy}" width="{w}" height="{ROW}" as="geometry"/></mxCell>')
+        yy += ROW
+    for t in todo:
+        cells.append(f'<mxCell id="{nid(cid)}" parent="{cid}" style="{text}fontStyle=2;fontColor={TODO_COLOR};" '
+                     f'value={quoteattr(escape("to do: " + t))} vertex="1">'
+                     f'<mxGeometry y="{yy}" width="{w}" height="{ROW}" as="geometry"/></mxCell>')
+        yy += ROW
     boxes[cid] = (x, y, w, h, pkg)
     return y + h
 
@@ -112,9 +127,9 @@ def package(pkg, title, ids, pad=24, top=40):
     y2 = [boxes[i][1] + boxes[i][3] for i in ids]
     x, y = min(xs) - pad, min(ys) - top
     w, h = max(x2) - x + pad, max(y2) - y + pad
-    fill, stroke = PALETTE[pkg]
+    fill, stroke = PKG_FILL, PKG_STROKE
     style = (f"rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor={fill};strokeColor={stroke};"
-             f"opacity=55;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fontSize=15;fontStyle=1;"
+             f"opacity=70;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fontSize=15;fontStyle=1;"
              f"fontColor=#333333;")
     containers.append(f'<mxCell id="pkg-{pkg}" parent="1" style="{style}" value={quoteattr(escape(title))} '
                       f'vertex="1"><mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>')
@@ -126,6 +141,51 @@ def note(nid_, text, x, y, w, h):
     cells.append(f'<mxCell id="{nid_}" parent="1" style="{style}" value={quoteattr(text)} vertex="1">'
                  f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>')
     boxes[nid_] = (x, y, w, h, None)
+
+
+def swatch(sid, status, label, x, y, w=150, h=26):
+    fill, stroke, _ = STATUS[status]
+    dash = "dashed=1;dashPattern=6 4;" if status == "todo" else ""
+    cells.append(f'<mxCell id="{sid}" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;'
+                 f'fillColor={fill};strokeColor={stroke};strokeWidth={2 if status != "done" else 1};'
+                 f'fontSize=11;{dash}" value={quoteattr(label)} vertex="1">'
+                 f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{h}" as="geometry"/></mxCell>')
+
+
+def todo_progress(path=Path(__file__).resolve().parents[1] / "team_notes" / "TODO.md"):
+    """[(section title, done, open)] counted from the checkboxes in TODO.md
+    (sections are the diagram's packages: "## 1. Configuration", ...)."""
+    import re
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"## (\d+)\. ([^(`]+)", line)       # "## 3. Simulation core (`commute.py`...)"
+        if m:
+            out.append([f"{m.group(1)}. {m.group(2).strip()}", 0, 0])
+        elif out and re.match(r"\s*- \[x\]", line):
+            out[-1][1] += 1
+        elif out and re.match(r"\s*- \[ \]", line):
+            out[-1][2] += 1
+    return out
+
+
+def legend_status(x=1990, y=-70):
+    """Status colors, arrow meanings, and progress per phase from TODO.md."""
+    swatch("lg-done", "done", "built", x, y)
+    swatch("lg-partial", "partial", "partly built (to do: ...)", x + 160, y, w=170)
+    swatch("lg-todo", "todo", "not built yet", x + 340, y)
+    note("legend", "&#9670;&rarr; has / owns &nbsp;&nbsp; &rarr; uses &nbsp;&nbsp; - - &rarr; depends on"
+         " &nbsp;&nbsp; - - &#9655; implements", x, y + 34, 490, 30)
+    rows = todo_progress()
+    done = sum(r[1] for r in rows)
+    total = sum(r[1] + r[2] for r in rows)
+    lines = []
+    for title, d, o in rows:
+        n = d + o
+        filled = round(10 * d / n) if n else 0
+        bar = "&#9608;" * filled + "&#9617;" * (10 - filled)
+        lines.append(f'<span style="font-family:Courier New">{bar}</span> {d}/{n} &nbsp;{escape(title)}')
+    note("progress", f"<b>Progress by section of team_notes/TODO.md ({AS_OF}): {done}/{total} done "
+         f"({100 * done / total:.0f}%)</b><br>" + "<br>".join(lines), x, y + 74, 490, 22 + 17 * len(rows))
 
 
 # ======================================================================= layout
@@ -152,7 +212,8 @@ y_pub = cls("PublicStationConfig", "PublicStationConfig", [
     "max_dwell_minutes (L2 240 / DC 45)",
     "driver_price_per_kwh (None = dataset)",
     "customer_class, site_rate (27 / EV-L)",
-], [], C[0], y_cc + GAP, "config")
+], [], C[0], y_cc + GAP, "config", status="partial",
+    todo=["real station locations and detours"])
 y_sc = cls("ScenarioConfig", "ScenarioConfig", [
     "start, end, step_minutes",
     "num_chargers M, charger_kw, charger_type",
@@ -173,12 +234,14 @@ y_home = cls("HomeChargingConfig", "HomeChargingConfig", [
     "charger_kw: L2 7.2 kW, L1 1.4 kW",
     "L2 84% / L1 16% of home chargers",
     "no_home_share = 0.10 (NREL 2030 study)",
-], ["shares -> {L2, L1, none}", "assign_home_chargers(n, shares)"], C[1], y_work + GAP, "config")
+], ["shares -> {L2, L1, none}", "assign_home_chargers(n, shares)"], C[1], y_work + GAP, "config",
+    status="partial", todo=["CT / Boston home-access share (NREL county data)",
+                            "home price mode fixed_tou (6-month Rate 7)"])
 y_peak = cls("PeakWindow", "PeakWindow", [
     "weekdays 12:00-20:00 on-peak",
-    "holidays (TBD)",
-], ["is_on_peak(t) -> bool"], C[1], y_home + GAP, "config")
-package("config", "Configuration  (config.py)",
+], ["is_on_peak(t) -> bool"], C[1], y_home + GAP, "config", status="partial",
+    todo=["holidays off-peak?", "peak window for large C&I / Last Resort"])
+package("config", "1. Configuration  (config.py)",
         ["CommuteConfig", "PublicStationConfig", "ScenarioConfig", "WorkHubConfig", "HomeChargingConfig", "PeakWindow"])
 
 # ---------------------------------------------------------------- 2. data and pricing
@@ -202,7 +265,8 @@ y_dr = cls("DeliveryRate", "DeliveryRate / EVLRate", [
     "Rate 7, 27, 30, 35: customer, demand, delivery",
     "Rate EV-L: 8 load-factor tiers",
 ], ["get_rate(rate)", "load_public_prices() -> L2, DCFC"], C[3] + 40, y, "data",
-    note="eversource_*.csv, charger_prices_summary.csv")
+    note="eversource_*.csv, charger_prices_summary.csv", status="partial",
+    todo=["large C&I / Last Resort rates (Rate 35 stands in)"])
 y_meter = cls("SiteMeter", "SiteMeter", [
     "15-min load blocks per site",
 ], ["record(t, step, kWh, on_peak, price)", "bills(rate) -> list[MonthlyBill]"], C[3] + 40, y_dr + GAP, "data")
@@ -221,7 +285,7 @@ y_nhts = cls("NHTS", "nhts.py", [
     stereotype="module", note="derived/nhts_commuters.csv")
 note("palo", "<b>Palo Alto public L2 sessions</b><br>arrival_departure_kWh.csv<br>"
      "median stay 2.3 h, 84% under 4 h<br>&rarr; public L2 max stay = 4 h", C[4] + 40, y_nhts + GAP, W, 74)
-package("data", "Data and pricing  (pricing.py, tariffs.py, vehicle.py, nhts.py, dataset/)",
+package("data", "2. Data and pricing  (pricing.py, tariffs.py, vehicle.py, nhts.py, dataset/)",
         ["PriceSchedule", "EversourcePriceSchedule", "DeliveredPriceSchedule", "FlatTOUPriceSchedule",
          "DeliveryRate", "SiteMeter", "MonthlyBill", "VehicleSpec", "NHTS", "palo"])
 
@@ -250,7 +314,7 @@ y_sim = cls("Simulation", "Simulation", [
     "one hub: ChargingStation + SiteMeter",
     "move-your-car rule, driverless or commuting EVs",
 ], ["run() -> SimulationResult"], C[0], y_clock + GAP, "core", stereotype="single hub (earlier harness)")
-package("core", "Simulation core  (commute.py, simulation.py, clock.py)",
+package("core", "3. Simulation core  (commute.py, simulation.py, clock.py)",
         ["CommuteSimulation", "PlanningView", "SimClock", "Simulation"])
 
 # ---------------------------------------------------------------- 4. drivers and vehicles
@@ -268,7 +332,8 @@ y_ev = cls("EV", "EV", [
 y_drv = cls("DriverProfile", "DriverProfile", [
     "work_start 7:45, work_end 16:30 (NHTS median)",
     "commute 10.5 mi / 25 min, work_days Mon-Fri",
-], ["segments(day),  location_at(t)", "driving_miles(start, end)"], X4, y_ev + GAP, "driver")
+], ["segments(day),  location_at(t)", "driving_miles(start, end)"], X4, y_ev + GAP, "driver",
+    status="partial", todo=["weekend / errand trips (NHTS)", "value of time ($/hour)"])
 y_loc = cls("Location", "Location", ["HOME, WORK, DRIVING, PUBLIC"], [], X4, y_drv + GAP, "driver",
             stereotype="enum")
 X4b = X4 + W + 40
@@ -278,14 +343,14 @@ y_it = cls("Itinerary", "Itinerary", [
     "location_at(t),  fraction_at(loc, a, b)",
     "driving_miles(a, b)  (commute + detours)",
     "next_home_departure(t),  active_visit(t)",
-], X4b, Y3, "driver")
+], X4b, Y3, "driver", status="partial", todo=["stop at a station on the way home from work"])
 y_vis = cls("Visit", "Visit", [
     "station: Site, leave, target_kwh",
     "latest_depart, planned_depart, depart",
     "charged_kwh, waited_hours",
 ], [], X4b, y_it + GAP, "driver",
     note="home -> detour -> station -> detour -> home")
-package("driver", "Drivers and vehicles  (ev.py, driver.py, itinerary.py)",
+package("driver", "4. Drivers and vehicles  (ev.py, driver.py, itinerary.py)",
         ["EV", "DriverProfile", "Location", "Itinerary", "Visit"])
 
 # ---------------------------------------------------------------- 5. sites and chargers
@@ -297,7 +362,8 @@ y_site = cls("Site", "Site", [
     "flat_price (work $0.25, public $0.39 / $0.485)",
     "owner (home), move_window, daily_limit (work)",
     "public_kind, detour, detour_miles, max_dwell",
-], ["driver_price(t),  is_on_peak(t)"], C[1], Y5, "sites", w=420)
+], ["driver_price(t),  is_on_peak(t)"], C[1], Y5, "sites", w=420, status="partial",
+    todo=["grid cap P_max: share power when over it", "network + maintenance costs (~$1,700/yr per 2 L2)"])
 y_cs = cls("ChargingStation", "ChargingStation", ["chargers: list[Charger]  (first come, first served)"],
            ["plug_in(ev),  unplug(ev),  num_available"], C[0], Y5, "sites")
 y_ch = cls("Charger", "Charger", ["charger_id, rate_kw, kind (AC | DC)", "occupied_by: EV | None"], [],
@@ -308,7 +374,7 @@ y_build = cls("SiteBuilders", "site builders", [
     "public L2: Rate 27,  DC fast: Rate EV-L",
 ], ["HomeSiteFactory.make(ev_id, type)", "build_work_site(cfg)", "build_public_site(cfg, p)"],
     C[1], y_site + GAP, "sites", w=420, stereotype="sites.py")
-package("sites", "Sites and chargers  (sites.py, station.py)", ["Site", "ChargingStation", "Charger", "SiteBuilders"])
+package("sites", "5. Sites and chargers  (sites.py, station.py)", ["Site", "ChargingStation", "Charger", "SiteBuilders"])
 
 # ---------------------------------------------------------------- 6. strategies
 X6 = 1100
@@ -325,34 +391,35 @@ y_al = cls("AlwaysCharge", "AlwaysCharge", [
     "plug in whenever possible, full power to target",
     "public: if home can't cover next 24 h + buffer,",
     "   fill up at the fastest station (DC first)",
-], [], X6 - 200, Y6b, "strat", w=360, stereotype="baseline: uncontrolled")
+], [], X6 - 200, Y6b, "strat", w=360, stereotype="reference: uncontrolled charging")
 y_gr = cls("Greedy", "Greedy", [
     "96 h plan, cheapest slots across home / work",
     "keeps SOC >= 20% buffer, never above target",
     "replans when blocked or off plan (Rate et al.)",
     "public: cheapest station covering next 24 h",
 ], ["plan(ev, view) -> Plan", "_allocate(slots, start, floor, cap)"], X6 + 190, Y6b, "strat", w=360,
-    stereotype="baseline: greedy")
+    stereotype="baseline: greedy (simplest)")
 Y6c = max(y_al, y_gr) + 60
-y_rand = cls("RandomStrategy", "Random", ["random charger / time, ignores price", "seeded RNG"], [],
-             X6 - 200, Y6c, "strat", w=360, planned=True, stereotype="planned baseline")
 y_cent = cls("Centralized", "Centralized + CentralController", [
-    "sees all EVs; joint schedule (MILP: PuLP / OR-Tools)",
-], [], X6 + 190, Y6c, "strat", w=360, planned=True, stereotype="planned baseline")
+    "sees all cars, schedules, chargers; prices 1 day ahead",
+    "one MILP for the fleet (PuLP / CBC), incl. public",
+    "minimizes what drivers pay; see the plan doc",
+], [], X6 + 190, Y6c, "strat", w=360, planned=True, stereotype="baseline (branch started)")
 y_marl = cls("MARL", "Independent MARL agent", [
     "one agent per EV: LinTS bandit, then PPO",
-    "reward: -(money + value of time) - missed goal",
+    "acts on: where, when and how much to charge",
     "sees only PlanningView (no shared data)",
-], [], X6 + 580, Y6c, "strat", w=360, planned=True, stereotype="planned: the project's method")
-package("strat", "Strategies  (strategies/)", ["Strategy", "ChargeContext", "AlwaysCharge", "Greedy",
-                                              "RandomStrategy", "Centralized", "MARL"])
+], [], X6 + 580, Y6c, "strat", w=360, planned=True, stereotype="the project's method (not built)")
+package("strat", "6. Strategies  (strategies/)", ["Strategy", "ChargeContext", "AlwaysCharge", "Greedy",
+                                              "Centralized", "MARL"])
 
 # ---------------------------------------------------------------- 7. results and viz
-Y7 = max(y_build, y_ch, y_rand, y_cent, y_marl) + 130
+Y7 = max(y_build, y_ch, y_cent, y_marl) + 130
 y_cr = cls("CommuteResult", "CommuteResult", [
     "ev_results, stations, work_bills, timeline",
     "peak_home_kw (+ when), peak_work_kw",
-], ["total_cost, work_revenue, work_margin"], C[0], Y7, "results")
+], ["total_cost, work_revenue, work_margin"], C[0], Y7, "results", status="partial",
+    todo=["grid metrics: time at P_max / transformer cap"])
 y_cer = cls("CommuteEVResult", "CommuteEVResult", [
     "home / work / public kWh and $",
     "on- vs off-peak kWh, $/kWh",
@@ -360,7 +427,8 @@ y_cer = cls("CommuteEVResult", "CommuteEVResult", [
     "work + public waiting hours, visits, moves",
 ], ["missed_goal -> bool"], C[1], Y7, "results")
 y_sr = cls("StationResult", "StationResult", ["name, kind, price, revenue, energy, peak_kw", "bills"],
-           ["margin = revenue - utility bill"], C[2], Y7, "results")
+           ["margin = revenue - utility bill"], C[2], Y7, "results", status="partial",
+           todo=["utilization", "network + maintenance costs"])
 y_tl = cls("TimelineRecorder", "TimelineRecorder", [
     "StepRecord: time, prices {home, work, public}",
     "EVSnapshot: state, location, SOC, kW, cost",
@@ -375,17 +443,48 @@ y_srz = cls("SimulationResult", "SimulationResult / EVResult", ["single-hub resu
 note("runners", "<b>Runners</b><br>run_greedy.py: greedy vs always-charge<br>"
      "&nbsp;&nbsp;(home + work + public; --plot, --animate)<br>run_commute.py, run_fleet_demo.py,<br>"
      "run_single_ev.py: single-hub runs", C[4], y_viz + GAP, W, 100)
-package("results", "Results and visualization  (commute.py, metrics.py, recorder.py, viz/)",
+package("results", "7. Results and visualization  (commute.py, metrics.py, recorder.py, viz/)",
         ["CommuteResult", "CommuteEVResult", "StationResult", "TimelineRecorder", "viz", "SimulationResult",
          "runners"])
 
+# ---------------------------------------------------------------- 8. not built yet
+X8 = 2120
+y8 = Y3
+y_exp = cls("Experiments", "Experiments", [
+    "train Oct 2024 - Jun 2026, test Jul - Oct 2026",
+    "stress: Jul 2025, Mar 2026, Jan 2026 (81.8c spike)",
+    "several seeds, every baseline, results tables",
+], [], X8, y8, "todo", status="todo", stereotype="TODO section 11")
+y_grid = cls("GridLimits", "Grid limits", [
+    "site cap P_max: share power among plugged-in cars",
+    "transformer cap for homes (curbs the midnight",
+    "   shadow peak greedy creates)",
+], [], X8, y_exp + GAP, "todo", status="todo", stereotype="TODO section 10")
+y_price = cls("StationPricing", "Public station pricing", [
+    "daily base price from tomorrow's energy price",
+    "cost floor: energy + delivery + demand + fixed",
+    "surge when load > 50% of P_max",
+    "price shown and locked at plug-in",
+    "later: learning station agents",
+], [], X8, y_grid + GAP, "todo", status="todo", stereotype="TODO section 9 (now: fixed dataset price)")
+y_env = cls("MultiAgentEnv", "Multi-agent RL environment", [
+    "wraps CommuteSimulation (Gymnasium / PettingZoo)",
+    "obs per driver: PlanningView (public info only)",
+    "action: where, when and how much to charge",
+], ["reset(seed) -> observations", "step(actions) -> obs, rewards, done"],
+    X8, max(y_price + GAP, Y6c), "todo", status="todo", stereotype="TODO section 8")
+y_rew = cls("Reward", "Driver reward", [
+    "-(money + value of time x time)",
+    "- penalty for missing the charge goal",
+], [], X8, y_env + GAP, "todo", status="todo", stereotype="TODO section 8")
+package("todo", "8-11. Not built yet",
+        ["Experiments", "GridLimits", "StationPricing", "MultiAgentEnv", "Reward"])
+
 # ---------------------------------------------------------------- title + legend
 cells.insert(0, '<mxCell id="title" parent="1" style="text;html=1;fontSize=22;fontStyle=1;align=left;'
-                'verticalAlign=top;" value="Decentralized EV charging simulation: module UML (Nov 2026)" '
+                f'verticalAlign=top;" value="Decentralized EV charging simulation: module UML, status as of {AS_OF}" '
                 'vertex="1"><mxGeometry x="-24" y="-40" width="1200" height="34" as="geometry"/></mxCell>')
-note("legend", "<b>Legend</b><br>&#9670;&rarr; has / owns &nbsp;&nbsp; &rarr; uses &nbsp;&nbsp; "
-     "- - &rarr; depends on<br>- - &#9655; implements &nbsp;&nbsp; dashed box = planned, not built yet",
-     C[4] + 440, -40, 330, 62)
+legend_status()
 
 # ======================================================================= edges
 edge("CommuteConfig", "WorkHubConfig", "work", "has", exit=(1, 0.15), entry=(0, 0.3))
@@ -401,11 +500,11 @@ edge("SiteMeter", "DeliveryRate", "priced by", "uses", exit=(0.5, 0), entry=(0.5
 
 edge("CommuteSimulation", "CommuteConfig", "configured by", "uses", exit=(0.05, 0), entry=(1, 0.95),
      points=[(C[1] + 21, Y3 - 70), (360, Y3 - 70),
-             (360, boxes["CommuteConfig"][1] + 0.95 * boxes["CommuteConfig"][3])])
+             (360, boxes["CommuteConfig"][1] + 0.95 * boxes["CommuteConfig"][3])], label_at=-0.75)
 edge("CommuteSimulation", "SimClock", "ticks", "has", exit=(0, 0.35), entry=(1, 0.5))
 edge("Simulation", "ScenarioConfig", "configured by", "uses", exit=(0, 0.3), entry=(0, 0.6),
      points=[(-12, boxes["Simulation"][1] + 0.3 * boxes["Simulation"][3]),
-             (-12, boxes["ScenarioConfig"][1] + 0.6 * boxes["ScenarioConfig"][3])])
+             (-12, boxes["ScenarioConfig"][1] + 0.6 * boxes["ScenarioConfig"][3])], label_at=0.3)
 edge("CommuteSimulation", "PlanningView", "builds per driver", "assoc", exit=(0.5, 1), entry=(0.5, 0))
 edge("CommuteSimulation", "EV", "N drivers", "has", exit=(1, 0.2), entry=(0, 0.2))
 edge("CommuteSimulation", "Itinerary", "one per EV", "has", exit=(0.8, 0), entry=(0.5, 0),
@@ -435,8 +534,6 @@ edge("SiteBuilders", "Site", "creates", "assoc", exit=(0.5, 0), entry=(0.5, 1))
 
 edge("AlwaysCharge", "Strategy", "", "impl", exit=(0.5, 0), entry=(0.2, 1))
 edge("Greedy", "Strategy", "", "impl", exit=(0.5, 0), entry=(0.8, 1))
-edge("RandomStrategy", "Strategy", "", "impl", exit=(0, 0.5), entry=(0, 0.8),
-     points=[(X6 - 230, boxes["RandomStrategy"][1] + 30), (X6 - 230, Y5 + 0.8 * boxes["Strategy"][3])])
 edge("Centralized", "Strategy", "", "impl", exit=(0.5, 0), entry=(0.5, 1),
      points=[(X6 + 190 + 180, Y6c - 30), (X6 + 190, Y6c - 30)])
 edge("MARL", "Strategy", "", "impl", exit=(0.5, 0), entry=(1, 0.8),
@@ -446,6 +543,8 @@ edge("ChargeContext", "PlanningView", "view", "uses", exit=(0.5, 0), entry=(1, 0
      points=[(X6 + 420 + W / 2, Y5 - 48), (850, Y5 - 48),
              (850, boxes["PlanningView"][1] + boxes["PlanningView"][3] / 2)])
 
+edge("MARL", "MultiAgentEnv", "trains in", "uses", exit=(1, 0.5), entry=(0, 0.3))
+edge("MultiAgentEnv", "Reward", "rewards", "has", exit=(0.5, 1), entry=(0.5, 0))
 edge("CommuteResult", "CommuteEVResult", "per EV", "has", exit=(1, 0.3), entry=(0, 0.3))
 edge("CommuteResult", "StationResult", "per station", "has", exit=(1, 0.8), entry=(0, 0.5),
      points=[(C[1] - 20, boxes["CommuteResult"][1] + 0.8 * boxes["CommuteResult"][3]),
@@ -459,7 +558,7 @@ edge("viz", "CommuteResult", "plots", "uses", exit=(0.5, 1), entry=(0.5, 1),
 
 xml = ('<mxfile host="Electron">\n  <diagram name="Module UML" id="ev-uml">\n'
        '    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" '
-       'arrows="1" fold="1" page="0" pageScale="1" pageWidth="2400" pageHeight="2600" math="0" shadow="0">\n'
+       'arrows="1" fold="1" page="0" pageScale="1" pageWidth="2600" pageHeight="2600" math="0" shadow="0">\n'
        '      <root>\n        <mxCell id="0"/>\n        <mxCell id="1" parent="0"/>\n'
        + "".join(f"        {c}\n" for c in containers + cells)
        + '      </root>\n    </mxGraphModel>\n  </diagram>\n</mxfile>\n')

@@ -163,7 +163,9 @@ moves the car to a regular spot for the rest of the day.
 - **Stations:** profit, utilization, monthly peak kW.
 - **Grid:** peak load, share of time at `P_max` / transformer cap.
 
-Baselines: random, greedy (cheapest slot), and centralized optimization with full information.
+Baselines: greedy (cheapest slot; the simplest baseline) and centralized optimization (a controller
+that coordinates all cars, seeing prices one day ahead). Always-charge is kept as an uncontrolled
+reference. A random baseline was dropped (Nov 11): it says little that greedy doesn't.
 
 ### M8. Train / test split
 Hold out **whole months**, not random days (e.g. train Jul 2025–Mar 2026, test Apr–Jun 2026).

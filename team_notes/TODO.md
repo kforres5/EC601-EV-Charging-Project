@@ -97,14 +97,15 @@ the checkboxes below (`python scripts/make_uml_diagram.py`).
 ## 6. Strategies (`strategies/`)
 - [x] Strategy interface: `decide()` (single hub), `wants_charger()` (plug in at work?),
       `charge_limit_kwh()` (how much now), `public_visit()` (go to a station? which? how much?)
-- [x] Baseline: always charge when plugged in (`AlwaysCharge`; fills up at the fastest public
+- [x] Reference: always charge when plugged in, i.e. uncontrolled charging (`AlwaysCharge`; fills up at the fastest public
       station when home can't cover tomorrow)
-- [x] Baseline: greedy (cheapest slots across home and work over 96 h, keeps the 20% buffer,
+- [x] Baseline: greedy, the simplest baseline (cheapest slots across home and work over 96 h, keeps the 20% buffer,
       replans when blocked, cheapest public station that fits; `strategies/greedy.py`)
-- [ ] Baseline: random
-- [ ] Baseline: centralized optimization with full information (MILP, e.g. PuLP or OR-Tools).
-      Branch `centralized-strategy` exists (no code yet; update it from `main` first)
+- [ ] Baseline: centralized controller (MILP with PuLP / CBC), branch `centralized-strategy`.
+      Plan and decisions: [Centralized_Controller_Plan.md](Centralized_Controller_Plan.md)
+      (minimizes what drivers pay; sees prices only one day ahead; includes public stations)
 - [ ] Independent learners: contextual bandit (LinTS) first, then PPO (Stable-Baselines3) **(M2)**
+- Dropped (Nov 11): a random baseline. Greedy is the simplest baseline instead.
 
 ---
 
@@ -173,7 +174,7 @@ the checkboxes below (`python scripts/make_uml_diagram.py`).
 | Sprint | Dates | Lead | Focus |
 |---|---|---|---|
 | Sprint 3 | Oct 26 – Nov 8 | Kathryn | Data, pricing layers, sites refactor (done) |
-| Sprint 4 | Nov 9 – Nov 22 | Nuo | Random + centralized baselines (6), RL environment + reward (8), station pricing (9) |
+| Sprint 4 | Nov 9 – Nov 22 | Nuo | Centralized baseline (6), RL environment + reward (8), station pricing (9) |
 | Sprint 5 | Nov 23 – Dec 7 | Lidia & Kathryn | Train MARL agents (6, 8), experiments (11), docs and final presentation |
 
 If time runs short, drop learning station agents (9) and grid caps (10) first.
