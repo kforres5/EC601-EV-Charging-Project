@@ -20,8 +20,12 @@ Both strategies run on the same drivers and prices:
     python run_greedy.py --home-types none,none,L1,L2 # pick each driver's home charger
     python run_greedy.py --no-home-share 0.4 --chargers 2   # more renters, fewer work chargers
     python run_greedy.py --no-public                   # home + work only
-    python run_greedy.py --plot                        # dashboards in outputs/
+    python run_greedy.py --plot                        # dashboards in the run folder
     python run_greedy.py --animate --anim-days 2       # animated GIF of the first 2 days, per strategy
+
+Each run gets its own folder: outputs/runX_[parameters]/ with summary.txt, params.json and
+any charts, e.g. outputs/run4_greedy-vs-always_evs-10_chargers-3_days-7_start-2025-07-07/
+(see ev_charging/run_output.py).
 """
 from __future__ import annotations
 
@@ -37,6 +41,7 @@ from ev_charging.config import (HOME_CHARGER_TYPES, CommuteConfig, HomeChargingC
 from ev_charging.ev import EV
 from ev_charging.nhts import NEW_ENGLAND, sample_driver_profiles
 from ev_charging.paths import REPO_ROOT
+from ev_charging.run_output import run_folder
 from ev_charging.strategies import AlwaysCharge, Greedy
 from ev_charging.tariffs import load_public_prices
 
@@ -85,8 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--every", type=int, default=0,
                     help="animate every Nth timestep (0 = pick one that keeps it under a minute)")
     ap.add_argument("--show", action="store_true", help="open the dashboards in windows")
-    ap.add_argument("--out", type=Path, default=REPO_ROOT / "outputs")
-    ap.add_argument("--name", default="greedy")
+    ap.add_argument("--out", type=Path, default=REPO_ROOT / "outputs",
+                    help="where run folders go (each run: <out>/runX_[parameters]/)")
     return ap
 
 
@@ -216,7 +221,14 @@ def print_result(r: CommuteResult) -> None:
 
 
 def main() -> None:
-    a = build_parser().parse_args()
+    ap = build_parser()
+    a = ap.parse_args()
+    label = "greedy-vs-always" if a.strategy == "both" else a.strategy
+    with run_folder(a, ap, label, always=("evs", "chargers", "days", "start"), skip=("strategy",)):
+        run(a)
+
+
+def run(a) -> None:
     cfg = build_config(a)
     drivers = drivers_for(a, cfg)
     print_setup(cfg, drivers, a)
@@ -235,7 +247,7 @@ def main() -> None:
     if a.plot or a.show:
         from ev_charging.viz import plot_commute_dashboard
         for name, r in results.items():
-            path = a.out / f"{a.name}_{name}_dashboard.png" if a.plot else None
+            path = a.run_dir / f"{name}_dashboard.png" if a.plot else None
             plot_commute_dashboard(r, path, interactive=a.show)
             if path:
                 print(f"Saved {path}")
@@ -243,7 +255,7 @@ def main() -> None:
         from ev_charging.viz import animate_commute
         end = cfg.start + timedelta(days=a.anim_days) if a.anim_days else None
         for name, r in results.items():
-            path = a.out / f"{a.name}_{name}_commute.gif"
+            path = a.run_dir / f"{name}_commute.gif"
             print(f"Rendering {name} animation...")
             animate_commute(r, path, end=end, every=a.every)
             print(f"Saved {path}")

@@ -6,7 +6,7 @@ This repository documents work done on an EV charging optimization project.
 ```
 pip install -r requirements.txt
 python run_single_ev.py                  # 1 EV, 0% -> 100%, prints the cost
-python run_single_ev.py --plot --animate # also saves outputs/single_ev_dashboard.png and single_ev_hub.gif
+python run_single_ev.py --plot --animate # also saves dashboard.png and hub.gif in the run folder
 python run_fleet_demo.py --evs 6 --chargers 2 --plot --animate   # cars queueing for chargers
 python run_fleet_demo.py --show          # open the charts in a window instead of saving
 python run_commute.py --plot --animate --every 2   # commuting drivers charging at a work hub
@@ -22,6 +22,13 @@ python run_greedy.py --sample-drivers --seed 3 --evs 12 --chargers 1 --no-home-s
 python scripts/build_nhts_commuters.py   # rebuild dataset/derived/nhts_commuters.csv from NHTS
 python -m pytest
 ```
+
+Each run saves into its own folder, `outputs/runX_[parameters]/`, numbered across all runners
+and named after the settings used (e.g.
+`run5_greedy_evs-10_chargers-3_days-7_start-2025-07-07_no-home-share-0.3_sample-drivers_seed-3`).
+The name has each runner's main settings plus anything changed from its default; the folder holds
+`summary.txt` (what the run printed), `params.json` (every option and the exact command) and any
+charts or animations.
 
 Assumptions (vehicle, charger power, peak hours, customer class, Eversource rate, driver
 price, dates, and the driver's work hours and commute) live in `ev_charging/config.py`.

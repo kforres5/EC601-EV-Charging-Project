@@ -161,6 +161,7 @@ Data files are described in [dataset/Data_info.md](../dataset/Data_info.md).
       regenerate with `scripts/make_uml_diagram.py`) with drivers, sites, pricing, strategies, results
 - [ ] Keep `Modeling_Assumptions.md` in sync as TBDs get filled in
 - [x] README: how to run each scenario
+- [x] One output folder per run: `outputs/runX_[parameters]/` with summary.txt and params.json
 
 ---
 

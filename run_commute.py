@@ -8,6 +8,8 @@ Prologue; by default every driver follows the NHTS median weekday schedule
     python run_commute.py --driver-price public-l2 # drivers pay the public L2 price
     python run_commute.py --charger-type DC --charger-kw 150 --site-rate EV-L --driver-price public-dcfc
     python run_commute.py --evs 6 --chargers 3 --plot --animate --every 2
+
+Each run gets its own folder: outputs/runX_[parameters]/ (see ev_charging/run_output.py).
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from ev_charging.ev import EV
 from ev_charging.nhts import NEW_ENGLAND, sample_driver_profiles
 from ev_charging.simulation import Simulation
 from ev_charging.tariffs import load_public_prices
+from ev_charging.run_output import run_folder
 from run_single_ev import add_viz_args, print_results, render
 
 
@@ -57,8 +60,13 @@ def main() -> None:
                     help="Eversource CT rate the hub is billed on (default: 27 at work, 7 at home)")
     ap.add_argument("--driver-price", default="passthrough",
                     help="passthrough, public-l2, public-dcfc, or a $/kWh number")
-    add_viz_args(ap, default_name="commute")
+    add_viz_args(ap)
     args = ap.parse_args()
+    with run_folder(args, ap, "commute", always=("hub", "evs", "chargers", "days", "start")):
+        run(args)
+
+
+def run(args) -> None:
 
     start = datetime.fromisoformat(args.start)
     cfg = ScenarioConfig(
