@@ -81,5 +81,8 @@ def peak_spans(timeline: list[StepRecord]) -> list[tuple[datetime, datetime]]:
 
 
 def soc_or_nan(snap: EVSnapshot) -> float:
-    """SOC in %, or NaN before the car arrives so lines start at arrival."""
-    return float("nan") if snap.state is EVState.AWAY else snap.soc * 100
+    """SOC in %, or NaN before a driverless car arrives so its line starts at arrival.
+    Cars with a driver always have a known SOC (at home, at work, or driving)."""
+    if snap.state is EVState.AWAY and snap.location is None:
+        return float("nan")
+    return snap.soc * 100

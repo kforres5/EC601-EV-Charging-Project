@@ -22,16 +22,35 @@ are the ones who actually would in real life:
 | Home L1 | ~1.4 kW (wall outlet) | Falls short with long commutes |
 | No home charging | none | Renters / street parking; relies on work + public |
 
-Shares of each type are scenario parameters (**TBD**: set from housing/renter data, see sources).
+Shares of each type are scenario parameters. Among drivers with a home charger, 84% L2 / 16% L1
+(`dataset/home_charging.txt`; J.D. Power 2024 EVX Home Charging Study). The share with **no** home
+charger is **10%** (`HomeChargingConfig.no_home_share`):
+- NREL's *2030 National Charging Network* (Wood et al. 2023) assumes 90% of EVs have reliable
+  overnight home charging, with 85% and 98% as sensitivity cases.
+- Surveys of current US EV drivers: 5.8% without (Plug In America, 2025, n ≈ 4,500) and 14%
+  without (ChargeLab, 2024, n = 500). Both samples lean toward early adopters.
+- For mass adoption the share would be much higher: NREL (Ge et al. 2021) finds only 33% of all US
+  light-duty vehicles park where home charging exists today (14% for renters in large apartment
+  buildings). Use `--no-home-share 0.3`+ for that scenario.
 Long-commute or high-mileage drivers can be added the same way.
+**Implemented** in `CommuteSimulation` (`ev_charging/commute.py`): each driver has their own home
+charger (or none) on the household's meter, plus the shared work hub.
 
 ### A2. What drivers pay
 - **Home:** time-of-use price. Energy part from the CSV (`residential` column). Peak is
   **weekdays 12:00–20:00**; off-peak is all other weekday hours and all weekend. Plus delivery
   charges (**TBD**).
 - **Work:** a flat fee per kWh set by the employer, cheaper than public charging and more
-  expensive than home. Only available while the driver is at work, for at most **X hours/day**.
-- **Public stations:** a posted price per kWh made of
+  expensive than home: **$0.25/kWh**. Only available while the driver is at work, for at most
+  **4 hours/day** plugged in. Note: home off-peak (supply + Rate 7 delivery) is ~$0.19 in July 2025
+  but ~$0.27 in January 2026, so in winter work is cheaper than home off-peak.
+- **Public stations (implemented, first version):** a public L2 lot ($0.39/kWh) and a DC fast
+  station ($0.485/kWh), the typical prices in `dataset/charger_prices_summary.csv`, fixed for the
+  run. Drivers detour from home (placeholder 1 mi / 5 min to the L2 lot, 3 mi / 10 min to DC fast),
+  only between 06:00 and 22:00, and must be home before their next commute. Longest stay: 4 h at
+  L2 (84% of Palo Alto public L2 sessions end within 4 h) and 45 min at DC fast. Each station pays
+  its own utility bill: Rate 27 for the L2 lot, Rate EV-L for DC fast.
+- **Public stations (planned):** a posted price per kWh made of
   - a **daily base price**, set once per day before the day starts (like a gas station), and
   - a **surge multiplier** applied when the station is busy (see A5).
 
@@ -88,6 +107,10 @@ to the cost floor.
 ### A8. Charge goals span days
 A driver's goal is to have enough charge for **the next day's driving plus a safety buffer**
 (e.g. 20%). Falling below it is penalized. This stops agents from learning to arrive at work empty.
+**Implemented as:** the battery should never drop below the buffer (`CommuteConfig.soc_buffer`,
+20% of the battery), i.e. before every trip the car has that trip's energy plus 20%. Metrics:
+trips that end below the buffer, hours below it, and shortfall (energy the battery didn't have).
+The penalty itself comes with the RL reward (M3).
 
 ### A9. Vehicles are identical (from the spec)
 Same battery size (60 kWh default) and efficiency (~0.3 kWh/mile, **TBD**: confirm from EPA data).
@@ -119,7 +142,14 @@ with base price ≥ cost floor (A6).
 
 ### M5. Work charging
 Available only during work hours, at most X hours/day, with a limited number of work chargers
-(first come, first served, plus a "move your car after X hours" rule).
+(first come, first served, plus a "move your car" rule).
+**Implemented:** once a car reaches its target charge, the driver has 60 minutes to move it
+(`move_window_minutes`, work hubs only via `move_rule_at`). The car then parks in a regular spot
+and can't plug back in that day; a car arriving already at its target parks straight away.
+Drivers are assumed to always move on time (no overstay fee yet).
+In `CommuteSimulation` the window starts when a car **stops charging** (reached its target, or its
+strategy stopped), and there is a **4 hours/day** limit on plugged-in time at work; either rule
+moves the car to a regular spot for the rest of the day.
 
 ### M6. Time scales
 | What | How often |
@@ -161,7 +191,7 @@ cheaper than off-peak on most days, so a large hub has almost no reason to avoid
 ### Rules for turning the CSV into a price at any time
 1. **Peak window:** weekdays 12:00–20:00 (confirmed by Eversource and EnergizeCT for Rate 7, and
    for Rate 27 small business). Set `PeakWindow(start_hour=12, end_hour=20)`.
-   The current `config.py` default is still 7–23 and needs this change.
+   This is now the default in `config.py`.
    Large C&I / Last Resort windows are **TBD** (confirm in the tariff).
 2. **Weekends:** off-peak all day, using that month's off-peak price. Already handled.
 3. **Holidays:** **TBD** whether they count as off-peak. The CSV has rows on 7/4, 12/25 and 1/1.

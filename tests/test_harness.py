@@ -8,6 +8,7 @@ from ev_charging.ev import EV
 from ev_charging.paths import EVERSOURCE_CSV
 from ev_charging.pricing import EversourcePriceSchedule
 from ev_charging.simulation import Simulation
+from tests.helpers import simple_cfg
 
 
 def run(cfg):
@@ -42,7 +43,9 @@ def test_missing_weekday_filled(eversource):
 
 def test_out_of_range_raises(eversource):
     with pytest.raises(KeyError):
-        eversource.rates_for(date(2026, 7, 1))
+        eversource.rates_for(date(2027, 1, 4))
+    with pytest.raises(KeyError):
+        eversource.rates_for(date(2024, 9, 2))
 
 
 def test_weekend_is_off_peak_all_day(eversource):
@@ -54,10 +57,10 @@ def test_weekend_is_off_peak_all_day(eversource):
 # ---------------------------------------------------------- peak window
 def test_default_peak_window():
     p = PeakWindow()
-    assert not p.is_on_peak(datetime(2025, 7, 1, 6, 45))
-    assert p.is_on_peak(datetime(2025, 7, 1, 7, 0))
-    assert p.is_on_peak(datetime(2025, 7, 1, 22, 45))
-    assert not p.is_on_peak(datetime(2025, 7, 1, 23, 0))
+    assert not p.is_on_peak(datetime(2025, 7, 1, 11, 45))
+    assert p.is_on_peak(datetime(2025, 7, 1, 12, 0))
+    assert p.is_on_peak(datetime(2025, 7, 1, 19, 45))
+    assert not p.is_on_peak(datetime(2025, 7, 1, 20, 0))
 
 
 def test_peak_window_is_configurable():
@@ -71,28 +74,35 @@ def test_peak_window_is_configurable():
 
 # ---------------------------------------------------------- end-to-end
 def test_base_scenario_cost_matches_hand_calc():
-    # 0:00-7:00 off-peak = 28 steps * 1.8 kWh = 50.4 kWh @ 0.09161
-    # remaining 9.6 kWh on-peak @ 0.15764
-    r = run(ScenarioConfig())
+    # 0:00-8:30 is all before the noon peak: 60 kWh at July's off-peak 0.09161
+    r = run(simple_cfg())
     assert r.reached_required_soc
-    assert r.off_peak_kwh == pytest.approx(50.4)
-    assert r.on_peak_kwh == pytest.approx(9.6)
-    assert r.cost == pytest.approx(50.4 * 0.09161 + 9.6 * 0.15764)
+    assert r.off_peak_kwh == pytest.approx(60.0)
+    assert r.on_peak_kwh == pytest.approx(0.0)
+    assert r.cost == pytest.approx(60.0 * 0.09161)
     assert r.charge_finished == datetime(2025, 7, 1, 8, 30)
 
 
+def test_charging_into_the_peak_costs_more():
+    # start 09:00: 3 h off-peak (21.6 kWh), the remaining 38.4 kWh on-peak at 0.15764
+    r = run(simple_cfg(start=datetime(2025, 7, 1, 9)))
+    assert r.off_peak_kwh == pytest.approx(21.6)
+    assert r.on_peak_kwh == pytest.approx(38.4)
+    assert r.cost == pytest.approx(21.6 * 0.09161 + 38.4 * 0.15764)
+
+
 def test_flat_fallback_pricing():
-    cfg = ScenarioConfig(price_csv=None, fallback_on_peak_price=0.2, fallback_off_peak_price=0.2)
+    cfg = simple_cfg(price_csv=None, fallback_on_peak_price=0.2, fallback_off_peak_price=0.2)
     assert run(cfg).cost == pytest.approx(12.0)
 
 
 def test_efficiency_increases_billed_energy():
-    cfg = ScenarioConfig(price_csv=None, charging_efficiency=0.9)
+    cfg = simple_cfg(price_csv=None, charging_efficiency=0.9)
     assert run(cfg).energy_kwh == pytest.approx(60.0 / 0.9)
 
 
 def test_run_stops_at_end_if_not_enough_time():
-    r = run(ScenarioConfig(end=datetime(2025, 7, 1, 2)))
+    r = run(simple_cfg(end=datetime(2025, 7, 1, 2)))
     assert not r.reached_required_soc
     assert r.energy_kwh == pytest.approx(14.4)
 
