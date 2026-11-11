@@ -1,6 +1,10 @@
 # EC601-EV-Charging-Project
 This repository documents work done on an EV charging optimization project.
 
+New here (or starting a Claude session)? Read [CLAUDE.md](CLAUDE.md) for the project context,
+key decisions and conventions, and [team_notes/TODO.md](team_notes/TODO.md) for what's left,
+organized by module to match the status-colored UML diagram in `resources/`.
+
 ## Running the simulation
 
 ```
