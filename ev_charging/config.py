@@ -145,6 +145,7 @@ class WorkHubConfig:
     charger_type: str = "AC"
     customer_class: str = "small_commercial"       # energy supply price class
     site_rate: Optional[str] = None                # None -> DEFAULT_SITE_RATE (Rate 27)
+    p_max_kw: Optional[float] = None               # site grid limit (kW); None = no cap
     # What drivers pay at work. A flat fee between home and public prices
     # (decided Nov 2026: $0.25/kWh). None = pass-through of the site's price.
     driver_price_per_kwh: Optional[float] = 0.25
@@ -170,6 +171,8 @@ class WorkHubConfig:
             raise ValueError("daily_limit_hours must be >= 0 or None")
         if self.move_window_minutes is not None and self.move_window_minutes < 0:
             raise ValueError("move_window_minutes must be >= 0 or None")
+        if self.p_max_kw is not None and self.p_max_kw <= 0:
+            raise ValueError("p_max_kw must be > 0 or None")
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,10 @@ class HomeChargingConfig:
     # (ChargeLab 2024, n=500). Mass-market adoption would push this up: only 33% of
     # all US light-duty vehicles park where home charging exists today (NREL, Ge et al. 2021).
     no_home_share: float = 0.10
+    # Network + maintenance for a home L2 charger, $/year: $1,700 per 2-port L2 = $850 per port.
+    # Billed to the owner as a flat daily surcharge (this / 365 per day), whether or not
+    # they charge that day. L1 has none.
+    l2_fixed_cost_per_year: float = 850.0
 
     def __post_init__(self) -> None:
         if self.customer_class not in CUSTOMER_CLASSES:
@@ -193,9 +200,14 @@ class HomeChargingConfig:
             object.__setattr__(self, "site_rate", DEFAULT_SITE_RATE[self.customer_class])
         if not 0 <= self.no_home_share <= 1:
             raise ValueError("no_home_share must be in [0, 1]")
+        if self.l2_fixed_cost_per_year < 0:
+            raise ValueError("l2_fixed_cost_per_year must be >= 0")
 
     def kw(self, charger_type: str) -> float:
         return dict(self.charger_kw)[charger_type]
+    
+    def fixed_cost_per_day(self, charger_type: str) -> float:
+        return self.l2_fixed_cost_per_year / 365 if charger_type == "L2" else 0.0
 
     @property
     def shares(self) -> dict[str, float]:
@@ -230,6 +242,10 @@ class PublicStationConfig:
     driver_price_per_kwh: Optional[float] = None
     customer_class: Optional[str] = None       # None -> small_commercial (L2) / large_commercial (DCFC)
     site_rate: Optional[str] = None            # None -> "27" (L2) / "EV-L" (DCFC)
+    p_max_kw: Optional[float] = None           # site grid limit (kW); None = no cap
+    # Network + maintenance, $/year per charger, paid by the station (not drivers).
+    # None -> $850 for L2 ($1,700 per 2 ports), 0 for DC fast (no figure yet).
+    fixed_cost_per_charger_year: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.kind not in PUBLIC_KINDS:
@@ -247,6 +263,12 @@ class PublicStationConfig:
             raise ValueError(f"customer_class must be one of {CUSTOMER_CLASSES}")
         if self.site_rate is None:
             object.__setattr__(self, "site_rate", "27" if self.kind == "L2" else "EV-L")
+        if self.p_max_kw is not None and self.p_max_kw <= 0:
+            raise ValueError("p_max_kw must be > 0 or None")
+        if self.fixed_cost_per_charger_year is None:
+            object.__setattr__(self, "fixed_cost_per_charger_year", 850.0 if self.kind == "L2" else 0.0)
+        if self.fixed_cost_per_charger_year < 0:
+            raise ValueError("fixed_cost_per_charger_year must be >= 0")
 
     @property
     def charger_type(self) -> str:

@@ -10,10 +10,10 @@ Prices at a site:
     it's a pass-through)
 """
 from __future__ import annotations
+from typing import Hashable, Optional
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional
 
 from .config import CommuteConfig, PublicStationConfig
 from .driver import Location
@@ -41,6 +41,18 @@ class Site:
     detour_miles: float = 0.0               # one-way distance from home
     max_dwell: Optional[timedelta] = None
     meter: SiteMeter = field(default_factory=SiteMeter)   # billed for work and public sites
+    p_max_kw: Optional[float] = None        # grid connection limit (grid-side kW); None = uncapped
+    fixed_cost_per_day: float = 0.0         # network + maintenance: home L2 owner pays it daily;
+                                            # public: station owes it, drivers split it (commute.py)
+
+    def allocate_power(self, requests_kw: dict[Hashable, float]) -> dict[Hashable, float]:
+        """Grid-side kW each request may draw. Over the cap, every request is scaled
+        by the same factor (proportional sharing); under it, requests pass through."""
+        total = sum(requests_kw.values())
+        if self.p_max_kw is None or total <= self.p_max_kw or total <= 0:
+            return dict(requests_kw)
+        scale = self.p_max_kw / total
+        return {k: kw * scale for k, kw in requests_kw.items()}
 
     @property
     def charger_kw(self) -> float:
@@ -83,6 +95,7 @@ def build_work_site(cfg: CommuteConfig) -> Site:
         flat_price=w.driver_price_per_kwh,
         move_window=None if w.move_window_minutes is None else timedelta(minutes=w.move_window_minutes),
         daily_limit=None if w.daily_limit_hours is None else timedelta(hours=w.daily_limit_hours),
+        p_max_kw=w.p_max_kw,
     )
 
 
@@ -104,6 +117,7 @@ class HomeSiteFactory:
             name=f"home:{ev_id}", location=Location.HOME,
             station=ChargingStation(1, self.cfg.home.kw(charger_type), "AC"),
             supply=self.supply, utility=self.utility, rate=self.rate, owner=ev_id,
+            fixed_cost_per_day=self.cfg.home.fixed_cost_per_day(charger_type),
         )
 
 
@@ -120,4 +134,6 @@ def build_public_site(cfg: CommuteConfig, p: PublicStationConfig) -> Site:
         flat_price=price, public_kind=p.kind,
         detour=timedelta(minutes=p.detour_minutes), detour_miles=p.detour_miles,
         max_dwell=timedelta(minutes=p.max_dwell_minutes),
+        p_max_kw=p.p_max_kw,
+        fixed_cost_per_day=p.num_chargers * p.fixed_cost_per_charger_year / 365,
     )

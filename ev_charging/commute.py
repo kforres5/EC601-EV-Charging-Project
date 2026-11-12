@@ -101,22 +101,25 @@ class CommuteEVResult:
     public_hours: float = 0.0       # time spent on public visits, detours included
     public_waiting_hours: float = 0.0
     public_kwh_by_kind: dict = field(default_factory=dict)   # {"L2": .., "DCFC": ..}
+    public_fixed_cost: float = 0.0  # this driver's share of public stations' network + maintenance
+    home_fixed_cost: float = 0.0    # network + maintenance fee for the home L2 charger
 
     @property
     def energy_kwh(self) -> float:
         return self.home_kwh + self.work_kwh + self.public_kwh
 
     @property
-    def cost(self) -> float:
+    def energy_cost(self) -> float:
         return self.home_cost + self.work_cost + self.public_cost
 
     @property
-    def avg_price_per_kwh(self) -> float:
-        return self.cost / self.energy_kwh if self.energy_kwh else 0.0
+    def cost(self) -> float:
+        return self.energy_cost + self.home_fixed_cost + self.public_fixed_cost
 
     @property
-    def missed_goal(self) -> bool:
-        return self.trips_below_buffer > 0 or self.shortfall_kwh > _EPS
+    def avg_price_per_kwh(self) -> float:
+        """$/kWh of energy only; fixed fees are excluded."""
+        return self.energy_cost / self.energy_kwh if self.energy_kwh else 0.0
 
 
 @dataclass
@@ -129,14 +132,16 @@ class StationResult:
     energy_kwh: float
     peak_kw: float
     bills: list[MonthlyBill]
-
-    @property
-    def site_cost(self) -> float:
-        return sum(b.total for b in self.bills)
+    fixed_cost: float = 0.0         # network + maintenance over the run
+    fee_revenue: float = 0.0        # collected from drivers as per-user shares
 
     @property
     def margin(self) -> float:
-        return self.revenue - self.site_cost
+        return self.revenue + self.fee_revenue - self.site_cost
+
+    @property
+    def site_cost(self) -> float:
+        return sum(b.total for b in self.bills) + self.fixed_cost
 
 
 @dataclass
@@ -170,6 +175,14 @@ class CommuteResult:
     def work_margin(self) -> float:
         """Work hub: fees collected minus its utility bill."""
         return self.work_revenue - self.work_site_cost
+
+@dataclass
+class _Draw:
+    ev: EV
+    site: Site
+    visit: Optional[Visit]
+    ctx: ChargeContext
+    stored: float            # battery-side kWh this car would add this step
 
 
 # ------------------------------------------------------------ what a driver sees
@@ -280,6 +293,10 @@ class CommuteSimulation:
         self._station_kwh = defaultdict(float)
         self._station_revenue = defaultdict(float)
         self._station_peak = defaultdict(float)
+        self._days_seen: set[date] = set()             # calendar days the run touched (daily fees)
+        self._station_users: dict[tuple[str, date], set[str]] = defaultdict(set)   # (station, day) -> ev_ids that charged
+        self._fee_revenue = defaultdict(float)                                     # station -> per-user fees collected
+        self._fixed_billed: dict[str, date] = {}       # ev_id -> last day its home-charger fee was billed
 
     # ------------------------------------------------------------ setup
     def add_driver(self, ev: EV, home_charger: str = "L2") -> None:
@@ -305,6 +322,7 @@ class CommuteSimulation:
             self._step()
             self.clock.advance()
             steps += 1
+        self._settle_public_fees()
         self._record(self.clock.now, {}, closing=True)
         return self._collect(steps)
 
@@ -367,6 +385,16 @@ class CommuteSimulation:
         step_end = now + self.clock.step
         step_h = self.clock.step_hours
         today = now.date()
+        self._days_seen.add(today)
+        self._settle_public_fees(before=today)
+        
+        # daily home-charger fee (network + maintenance), once per calendar day
+        for ev in self.evs:
+            home = self.homes.get(ev.ev_id)
+            if home is not None and home.fixed_cost_per_day > 0 and self._fixed_billed.get(ev.ev_id) != today:
+                self._fixed_billed[ev.ev_id] = today
+                ev.cost += home.fixed_cost_per_day
+                self._stats[ev.ev_id]["home_fixed_cost"] += home.fixed_cost_per_day
 
         # 0. public visits: leave the station when done; maybe head out to one
         for ev in self.evs:
@@ -441,10 +469,12 @@ class CommuteSimulation:
                     self._waiting.discard(ev.ev_id)
 
         # 4. charge
+        "sites with a grid cap (p_max_kw) share power proportionally."
         before = {ev.ev_id: (ev.soc, ev.cost) for ev in self.evs}
-        drawn: dict[str, float] = {}
-        home_kw = work_kw = 0.0
-        station_kw = defaultdict(float)
+        eff = self.cfg.charging_efficiency
+
+        # 4a. what each plugged-in car would take this step
+        draws: list[_Draw] = []
         for ev in self.evs:
             site = self._plugged.get(ev.ev_id)
             if site is None:
@@ -464,8 +494,18 @@ class CommuteSimulation:
                 limit = max(0.0, visit.target_kwh - visit.charged_kwh)
             else:
                 limit = ev.strategy.charge_limit_kwh(ev, ctx)
-            eff = self.cfg.charging_efficiency
             stored = min(ev.charge_capacity_kwh(site.charger_kw, site.kind, hours, eff), limit)
+            draws.append(_Draw(ev, site, visit, ctx, stored))
+
+        # 4b. sites over their grid cap share power
+        self._apply_grid_caps(draws, step_h)
+
+        # 4c. deliver the energy
+        drawn: dict[str, float] = {}
+        home_kw = work_kw = 0.0
+        station_kw = defaultdict(float)
+        for d in draws:
+            ev, site, visit, ctx, stored = d.ev, d.site, d.visit, d.ctx, d.stored
             if stored <= _EPS:
                 if site is w:
                     self._idle_since.setdefault(ev.ev_id, now)
@@ -483,6 +523,7 @@ class CommuteSimulation:
                 work_kw += kwh / step_h
             elif visit is not None:
                 where = "public"
+                self._station_users[(site.name, today)].add(ev.ev_id)
                 visit.charged_kwh += stored
                 s[f"public_kwh_{site.public_kind}"] += kwh
                 station_kw[site.name] += kwh / step_h
@@ -531,6 +572,36 @@ class CommuteSimulation:
 
     def _work_hours_left(self, ev: EV, day: date) -> float:
         return PlanningView(self, ev).work_hours_left(day)
+
+    def _apply_grid_caps(self, draws: list[_Draw], step_h: float) -> None:
+        """Scale down the cars at any site whose total grid draw exceeds p_max_kw."""
+        eff = self.cfg.charging_efficiency
+        by_site: dict[str, list[_Draw]] = defaultdict(list)
+        for d in draws:
+            if d.site.p_max_kw is not None:
+                by_site[d.site.name].append(d)
+        for group in by_site.values():
+            requests = {d.ev.ev_id: d.stored / eff / step_h for d in group}   # grid-side kW
+            granted = group[0].site.allocate_power(requests)
+            for d in group:
+                asked = requests[d.ev.ev_id]
+                if asked > _EPS:
+                    d.stored *= granted[d.ev.ev_id] / asked
+
+    def _settle_public_fees(self, before: Optional[date] = None) -> None:
+        """Split each finished day's station fixed cost equally among that day's users.
+        before=None settles everything (end of run)."""
+        ev_by_id = {e.ev_id: e for e in self.evs}
+        for key in sorted(k for k in self._station_users if before is None or k[1] < before):
+            users = self._station_users.pop(key)
+            fee = self.public[key[0]].fixed_cost_per_day
+            if fee <= 0 or not users:
+                continue
+            share = fee / len(users)
+            for ev_id in sorted(users):
+                ev_by_id[ev_id].cost += share
+                self._stats[ev_id]["public_fixed_cost"] += share
+            self._fee_revenue[key[0]] += fee
 
     # ------------------------------------------------------------ recording
     def _state(self, ev: EV, now: datetime, drawn: dict[str, float]) -> EVState:
@@ -607,12 +678,16 @@ class CommuteSimulation:
                 public_waiting_hours=s["public_waiting_hours"],
                 public_kwh_by_kind={k: s[f"public_kwh_{k}"] for k in ("L2", "DCFC")
                                     if s[f"public_kwh_{k}"] > 0},
+                public_fixed_cost=s["public_fixed_cost"],
+                home_fixed_cost=s["home_fixed_cost"],
             ))
         names = sorted({r.strategy for r in results})
         prorate = self.cfg.prorate_fixed_charges
         stations = [StationResult(name=n, kind=st.public_kind, price=st.flat_price,
                                   revenue=self._station_revenue[n], energy_kwh=self._station_kwh[n],
-                                  peak_kw=self._station_peak[n], bills=st.meter.bills(st.rate, prorate))
+                                  peak_kw=self._station_peak[n], bills=st.meter.bills(st.rate, prorate),
+                                  fixed_cost=st.fixed_cost_per_day * len(self._days_seen),
+                                  fee_revenue=self._fee_revenue[n])
                     for n, st in self.public.items()]
         return CommuteResult(
             ev_results=results, config=self.cfg, steps_run=steps, ended_at=self.clock.now,
