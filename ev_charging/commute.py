@@ -162,7 +162,8 @@ class CommuteResult:
 
     @property
     def total_cost(self) -> float:
-        """What all drivers paid (home bills + work fees + public charging)."""
+        """What all drivers paid (energy at home, work and public stations, plus
+        home-charger fees and their share of public station fixed costs)."""
         return sum(r.cost for r in self.ev_results)
 
     @property
