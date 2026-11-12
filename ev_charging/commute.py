@@ -42,11 +42,13 @@ prices (via PlanningView), and its own work limits.
 
 Step order (15 minutes by default):
   0. cars at a public station leave once done; cars at home may head out to one
+     (also: finished days' public station fixed costs are split among that day's users)
   1. cars whose driver left a site unplug
   2. work rules (move-your-car, daily limit) move cars off work chargers
   3. cars at home plug into their own charger; cars at work ask their strategy
      whether to plug in; cars at a station plug in; no charger free = wait
-  4. plugged-in cars charge (strategy picks how much; at a station, the visit's target)
+  4. plugged-in cars charge (strategy picks how much; at a station, the visit's target);
+     sites with a grid cap (p_max_kw) share power proportionally
   5. driving drains the battery; trip and buffer metrics update
 """
 from __future__ import annotations
@@ -468,8 +470,7 @@ class CommuteSimulation:
                 else:
                     self._waiting.discard(ev.ev_id)
 
-        # 4. charge
-        "sites with a grid cap (p_max_kw) share power proportionally."
+        # 4. charge (sites with a grid cap, p_max_kw, share power proportionally)
         before = {ev.ev_id: (ev.soc, ev.cost) for ev in self.evs}
         eff = self.cfg.charging_efficiency
 
