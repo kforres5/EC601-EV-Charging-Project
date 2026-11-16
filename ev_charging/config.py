@@ -146,6 +146,9 @@ class WorkHubConfig:
     customer_class: str = "small_commercial"       # energy supply price class
     site_rate: Optional[str] = None                # None -> DEFAULT_SITE_RATE (Rate 27)
     p_max_kw: Optional[float] = None               # site grid limit (kW); None = no cap
+    # Network + maintenance, $/year per charger, paid by the hub (drivers pay the flat fee,
+    # not a share of this). None -> $850 for AC ($1,700 per 2 ports), 0 for DC.
+    fixed_cost_per_charger_year: Optional[float] = None
     # What drivers pay at work. A flat fee between home and public prices
     # (decided Nov 2026: $0.25/kWh). None = pass-through of the site's price.
     driver_price_per_kwh: Optional[float] = 0.25
@@ -173,6 +176,11 @@ class WorkHubConfig:
             raise ValueError("move_window_minutes must be >= 0 or None")
         if self.p_max_kw is not None and self.p_max_kw <= 0:
             raise ValueError("p_max_kw must be > 0 or None")
+        if self.fixed_cost_per_charger_year is None:
+            object.__setattr__(self, "fixed_cost_per_charger_year",
+                               850.0 if self.charger_type == "AC" else 0.0)
+        if self.fixed_cost_per_charger_year < 0:
+            raise ValueError("fixed_cost_per_charger_year must be >= 0")
 
 
 @dataclass(frozen=True)

@@ -123,6 +123,10 @@ class CommuteEVResult:
         """$/kWh of energy only; fixed fees are excluded."""
         return self.energy_cost / self.energy_kwh if self.energy_kwh else 0.0
 
+    @property
+    def missed_goal(self) -> bool:
+        return self.trips_below_buffer > 0 or self.shortfall_kwh > _EPS
+
 
 @dataclass
 class StationResult:
@@ -134,8 +138,26 @@ class StationResult:
     energy_kwh: float
     peak_kw: float
     bills: list[MonthlyBill]
-    fixed_cost: float = 0.0         # network + maintenance over the run
-    fee_revenue: float = 0.0        # collected from drivers as per-user shares
+    fixed_cost: float = 0.0
+    fee_revenue: float = 0.0
+    num_chargers: int = 0
+    charger_kw: float = 0.0
+    hours: float = 0.0              # length of the run
+    plugged_hours: float = 0.0      # charger-hours occupied
+    capped_hours: float = 0.0       # hours demand exceeded p_max_kw
+    curtailed_kwh: float = 0.0
+
+    @property
+    def utilization(self) -> float:
+        """Share of charger-hours with a car plugged in."""
+        denom = self.num_chargers * self.hours
+        return self.plugged_hours / denom if denom else 0.0
+
+    @property
+    def energy_utilization(self) -> float:
+        """Energy delivered vs. nameplate (chargers x kW x hours)."""
+        cap = self.num_chargers * self.charger_kw * self.hours
+        return self.energy_kwh / cap if cap else 0.0
 
     @property
     def margin(self) -> float:
@@ -159,11 +181,18 @@ class CommuteResult:
     peak_home_at: Optional[datetime] = None
     strategy: str = ""
     stations: list[StationResult] = field(default_factory=list)
+    work_capped_hours: float = 0.0      # hours the work hub's demand exceeded p_max_kw
+    work_curtailed_kwh=self._curtailed_kwh["work"],
+    work_fixed_cost=self.work.fixed_cost_per_day * len(self._days_seen),
+)
+
+    @property
+    def work_capped_share(self) -> float:
+        hours = self.steps_run * self.config.step_minutes / 60
+        return self.work_capped_hours / hours if hours else 0.0
 
     @property
     def total_cost(self) -> float:
-        """What all drivers paid (energy at home, work and public stations, plus
-        home-charger fees and their share of public station fixed costs)."""
         return sum(r.cost for r in self.ev_results)
 
     @property
@@ -172,11 +201,11 @@ class CommuteResult:
 
     @property
     def work_site_cost(self) -> float:
-        return sum(b.total for b in self.work_bills)
+        return sum(b.total for b in self.work_bills) + self.work_fixed_cost
 
     @property
     def work_margin(self) -> float:
-        """Work hub: fees collected minus its utility bill."""
+        """Work hub: fees collected minus its utility bill and fixed cost."""
         return self.work_revenue - self.work_site_cost
 
 @dataclass
@@ -300,6 +329,9 @@ class CommuteSimulation:
         self._station_users: dict[tuple[str, date], set[str]] = defaultdict(set)   # (station, day) -> ev_ids that charged
         self._fee_revenue = defaultdict(float)                                     # station -> per-user fees collected
         self._fixed_billed: dict[str, date] = {}       # ev_id -> last day its home-charger fee was billed
+        self._capped_hours = defaultdict(float)        # site -> hours its requested draw exceeded p_max_kw
+        self._curtailed_kwh = defaultdict(float)       # site -> grid-side kWh not delivered because of the cap
+        self._station_plugged_hours = defaultdict(float)   # station -> charger-hours occupied
 
     # ------------------------------------------------------------ setup
     def add_driver(self, ev: EV, home_charger: str = "L2") -> None:
@@ -545,6 +577,7 @@ class CommuteSimulation:
             st.meter.record(now, self.clock.step, kw * step_h, st.is_on_peak(now), st.supply.price_at(now))
             self._station_kwh[name] += kw * step_h
             self._station_peak[name] = max(self._station_peak[name], kw)
+            self._station_plugged_hours[name] += len(st.station.active_sessions()) * step_h
         if home_kw > self._peak_home[0]:
             self._peak_home = (home_kw, now)
         self._peak_work = max(self._peak_work, work_kw)
@@ -583,8 +616,13 @@ class CommuteSimulation:
             if d.site.p_max_kw is not None:
                 by_site[d.site.name].append(d)
         for group in by_site.values():
+            site = group[0].site
             requests = {d.ev.ev_id: d.stored / eff / step_h for d in group}   # grid-side kW
-            granted = group[0].site.allocate_power(requests)
+            total = sum(requests.values())
+            granted = site.allocate_power(requests)
+            if total > site.p_max_kw + _EPS:
+                self._capped_hours[site.name] += step_h
+                self._curtailed_kwh[site.name] += (total - site.p_max_kw) * step_h
             for d in group:
                 asked = requests[d.ev.ev_id]
                 if asked > _EPS:
@@ -685,11 +723,16 @@ class CommuteSimulation:
             ))
         names = sorted({r.strategy for r in results})
         prorate = self.cfg.prorate_fixed_charges
+        hours = steps * self.clock.step_hours
         stations = [StationResult(name=n, kind=st.public_kind, price=st.flat_price,
                                   revenue=self._station_revenue[n], energy_kwh=self._station_kwh[n],
                                   peak_kw=self._station_peak[n], bills=st.meter.bills(st.rate, prorate),
                                   fixed_cost=st.fixed_cost_per_day * len(self._days_seen),
-                                  fee_revenue=self._fee_revenue[n])
+                                  fee_revenue=self._fee_revenue[n],
+                                  num_chargers=st.station.num_chargers, charger_kw=st.charger_kw,
+                                  hours=hours, plugged_hours=self._station_plugged_hours[n],
+                                  capped_hours=self._capped_hours[n],
+                                  curtailed_kwh=self._curtailed_kwh[n])
                     for n, st in self.public.items()]
         return CommuteResult(
             ev_results=results, config=self.cfg, steps_run=steps, ended_at=self.clock.now,
@@ -697,4 +740,6 @@ class CommuteSimulation:
             work_bills=self.work.meter.bills(self.work.rate, prorate),
             peak_home_kw=self._peak_home[0], peak_home_at=self._peak_home[1],
             peak_work_kw=self._peak_work, strategy=" + ".join(names), stations=stations,
+            work_capped_hours=self._capped_hours["work"],
+            work_curtailed_kwh=self._curtailed_kwh["work"],
         )

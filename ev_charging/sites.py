@@ -42,6 +42,7 @@ class Site:
     max_dwell: Optional[timedelta] = None
     meter: SiteMeter = field(default_factory=SiteMeter)   # billed for work and public sites
     p_max_kw: Optional[float] = None        # grid connection limit (grid-side kW); None = uncapped
+    fixed_cost_per_day=w.num_chargers * w.fixed_cost_per_charger_year / 365,
     fixed_cost_per_day: float = 0.0         # network + maintenance: home L2 owner pays it daily;
                                             # public: station owes it, drivers split it (commute.py)
 
