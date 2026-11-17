@@ -27,7 +27,7 @@ STATUS = {       # header fill, border, body fill
     "todo": ("#f8cecc", "#b85450", "#fffafa"),
 }
 TODO_COLOR = "#a33a39"
-AS_OF = "Nov 11, 2026"
+AS_OF = "Nov 16, 2026"
 
 cells = []       # xml strings (containers first, then classes, then edges)
 boxes = {}       # id -> (x, y, w, h, package)
@@ -297,7 +297,7 @@ y_csim = cls("CommuteSimulation", "CommuteSimulation", [
     "clock: SimClock,  recorder: TimelineRecorder",
 ], [
     "add_driver(ev, home_charger: L2 | L1 | none)",
-    "run() -> CommuteResult",
+    "run() -> CommuteResult,  fleet_view() (central only)",
     "_step(): 0 public visits  1 leave  2 work rules",
     "         3 plug in / wait  4 charge  5 drive",
 ], C[1], Y3, "core", w=420)
@@ -383,6 +383,7 @@ y_st = cls("Strategy", "Strategy", ["name"], [
     "wants_charger(ev, ctx) -> bool   (at work)",
     "charge_limit_kwh(ev, ctx) -> kWh (plugged in)",
     "public_visit(ev, view) -> (station, kWh)",
+    "release_charger(ev, ctx) -> bool",
 ], X6, Y5, "strat", w=380, stereotype="abstract")
 y_ctx = cls("ChargeContext", "ChargeContext", ["now, step, site, price, is_on_peak", "view: PlanningView"], [],
             X6 + 420, Y5, "strat")
@@ -400,11 +401,14 @@ y_gr = cls("Greedy", "Greedy", [
 ], ["plan(ev, view) -> Plan", "_allocate(slots, start, floor, cap)"], X6 + 190, Y6b, "strat", w=360,
     stereotype="baseline: greedy (simplest)")
 Y6c = max(y_al, y_gr) + 60
-y_cent = cls("Centralized", "Centralized + CentralController", [
-    "sees all cars, schedules, chargers; prices 1 day ahead",
-    "one MILP for the fleet (PuLP / CBC), incl. public",
-    "minimizes what drivers pay; see the plan doc",
-], [], X6 + 190, Y6c, "strat", w=360, planned=True, stereotype="baseline (branch started)")
+y_cent = cls("Centralized", "CentralizedStrategy + CentralController", [
+    "sees all cars (FleetView); prices 1 day ahead",
+    "one MILP for the fleet: home, work, public",
+    "minimizes what drivers pay; 96 h, re-plans daily",
+], ["ensure_plan() -> FleetPlan  (scipy / HiGHS)", "release_charger(): free work charger"],
+    X6 + 190, Y6c, "strat", w=360, stereotype="baseline: centralized",
+    note="central_controller.py, strategies/centralized.py",
+    status="partial", todo=["optional system-cost objective (demand charges)"])
 y_marl = cls("MARL", "Independent MARL agent", [
     "one agent per EV: LinTS bandit, then PPO",
     "acts on: where, when and how much to charge",
@@ -440,9 +444,10 @@ y_viz = cls("viz", "viz/", [], [
 ], C[4], Y7, "results", stereotype="module")
 y_srz = cls("SimulationResult", "SimulationResult / EVResult", ["single-hub results + site_bills"], [],
             C[0], y_cr + GAP, "results")
-note("runners", "<b>Runners</b><br>run_greedy.py: greedy vs always-charge<br>"
-     "&nbsp;&nbsp;(home + work + public; --plot, --animate)<br>run_commute.py, run_fleet_demo.py,<br>"
-     "run_single_ev.py: single-hub runs", C[4], y_viz + GAP, W, 100)
+note("runners", "<b>Runners</b><br>run_greedy.py --strategy always,greedy,central<br>"
+     "&nbsp;&nbsp;(home + work + public; --plot, --animate)<br>"
+     "scripts/sweep_central_vs_greedy.py: parameter sweep<br>"
+     "run_commute.py, run_fleet_demo.py, run_single_ev.py: single hub", C[4], y_viz + GAP, W, 100)
 package("results", "7. Results and visualization  (commute.py, metrics.py, recorder.py, viz/)",
         ["CommuteResult", "CommuteEVResult", "StationResult", "TimelineRecorder", "viz", "SimulationResult",
          "runners"])
@@ -451,10 +456,12 @@ package("results", "7. Results and visualization  (commute.py, metrics.py, recor
 X8 = 2120
 y8 = Y3
 y_exp = cls("Experiments", "Experiments", [
-    "train Oct 2024 - Jun 2026, test Jul - Oct 2026",
-    "stress: Jul 2025, Mar 2026, Jan 2026 (81.8c spike)",
-    "several seeds, every baseline, results tables",
-], [], X8, y8, "todo", status="todo", stereotype="TODO section 11")
+    "first sweep: central vs greedy on price",
+    "   (season x work fee x chargers x no-home share)",
+], ["scripts/sweep_central_vs_greedy.py -> sweep.csv"], X8, y8, "todo", status="partial",
+    stereotype="TODO section 11",
+    todo=["train / test split by month", "stress: Jul 2025, Mar 2026, Jan 2026 (81.8c spike)",
+          "several seeds, every baseline, results tables"])
 y_grid = cls("GridLimits", "Grid limits", [
     "site cap P_max: share power among plugged-in cars",
     "transformer cap for homes (curbs the midnight",
@@ -477,7 +484,7 @@ y_rew = cls("Reward", "Driver reward", [
     "-(money + value of time x time)",
     "- penalty for missing the charge goal",
 ], [], X8, y_env + GAP, "todo", status="todo", stereotype="TODO section 8")
-package("todo", "8-11. Not built yet",
+package("todo", "8-11. Still to build",
         ["Experiments", "GridLimits", "StationPricing", "MultiAgentEnv", "Reward"])
 
 # ---------------------------------------------------------------- title + legend

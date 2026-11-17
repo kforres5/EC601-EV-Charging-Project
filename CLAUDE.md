@@ -5,7 +5,8 @@ multi-agent reinforcement learning (MARL)**, compared against greedy (the simple
 centralized baselines, in a Python simulation priced with real Eversource Connecticut data.
 
 Team: Nuo Lin, Kathryn Forrest, Lidia Berhe. Repo: `kforres5/EC601-EV-Charging-Project`.
-Status, Nov 11 2026: simulation, pricing and two baselines built; RL not started.
+Status, Nov 16 2026: simulation, pricing, greedy and centralized baselines built and compared
+(first sweep done); RL not started.
 See `team_notes/TODO.md` (organized by module) and the status-colored UML diagram
 `resources/decentralized_ev_charging_module_UML.drawio`.
 
@@ -40,15 +41,18 @@ ev_charging/
   ev.py            EV: battery, SOC, driving, charge_capacity_kwh (AC limit / DC curve)
   station.py       ChargingStation / Charger (first come, first served)
   sites.py         Site = chargers + prices + meter; home / work / public builders
-  commute.py       CommuteSimulation (home + work + public), PlanningView, results
+  commute.py       CommuteSimulation (home + work + public), PlanningView, FleetView, results
+  central_controller.py   CentralController: one MILP for the fleet (scipy.optimize.milp / HiGHS)
   simulation.py    Simulation: the earlier single-hub harness (still used by 3 runners)
-  strategies/      base.py (Strategy interface, AlwaysCharge), greedy.py (Greedy)
+  strategies/      base.py (Strategy interface, AlwaysCharge), greedy.py (Greedy),
+                   centralized.py (CentralizedStrategy: each car follows the controller's plan)
   recorder.py      per-step timeline; metrics.py: single-hub results
   run_output.py    one folder per run: outputs/runX_[parameters]/
   viz/             dashboards and animations (single hub and commute)
-run_greedy.py      main runner: greedy vs always-charge, home + work + public
+run_greedy.py      main runner: compare always / greedy / central, home + work + public
 run_commute.py, run_fleet_demo.py, run_single_ev.py   single-hub runners
-scripts/           build_nhts_commuters.py, make_pricing_diagram.py, make_uml_diagram.py
+scripts/           build_nhts_commuters.py, make_pricing_diagram.py, make_uml_diagram.py,
+                   sweep_central_vs_greedy.py (writes sweep.csv into a run folder)
 dataset/           see dataset/Data_info.md; derived/nhts_commuters.csv is generated
 team_notes/        TODO.md, Modeling_Assumptions.md, Centralized_Controller_Plan.md, TEAM.md, SPRINT1.md
 resources/         UML (.drawio + PNG), pricing_data_flow (.svg + PNG)
@@ -60,12 +64,16 @@ tests/             pytest; tests/helpers.py pins round-number configs
 ## How to run
 
 ```
-pip install -r requirements.txt          # pytest, matplotlib
-python -m pytest                         # 117 tests; keep them passing
-python run_greedy.py                     # 10 drivers, 3 work chargers, 1 week of July 2025
+pip install -r requirements.txt          # pytest, matplotlib, scipy
+python -m pytest                         # 129 tests; keep them passing
+python run_greedy.py                     # always vs greedy: 10 drivers, 3 work chargers, 1 week of July 2025
+python run_greedy.py --strategy all      # + the centralized controller (solves take seconds)
+python run_greedy.py --strategy greedy,central --start 2026-01-05 --chargers 2 --no-home-share 0.3
 python run_greedy.py --start 2026-01-05 --plot      # winter, with dashboards
 python run_greedy.py --animate --anim-days 3        # GIF: home, road, work, public stations
-python run_greedy.py --sample-drivers --seed 3 --evs 12 --chargers 1 --no-home-share 0.3 --days 14
+python run_greedy.py --strategy all --sample-drivers --seed 3 --evs 12 --chargers 1 --no-home-share 0.3 --days 14
+python run_greedy.py --strategy greedy,central --work-price 0 --chargers 1 --evs 12 --no-home-share 0.3 --sample-drivers --seed 3
+python scripts/sweep_central_vs_greedy.py   # when does central beat greedy on price? (~10 min)
 python run_commute.py --sample-drivers --region new-england          # single-hub runner
 python scripts/make_uml_diagram.py       # regenerate the UML (also recounts TODO.md progress)
 ```
@@ -87,12 +95,19 @@ work asks the strategy; no free charger = wait) -> 4 charge (strategy picks kWh;
 visit's target) -> 5 drive (battery drains; trip and buffer metrics).
 
 Strategy interface (`strategies/base.py`): `decide()` (single hub), `wants_charger()` (at work),
-`charge_limit_kwh()` (plugged in), `public_visit()` (at home: go to a station?). A strategy only
+`charge_limit_kwh()` (plugged in), `public_visit()` (at home: go to a station?),
+`release_charger()` (free a work charger now?). A decentralized strategy only
 sees `PlanningView`: own SOC, schedule, home charger, posted prices (on-peak one day ahead),
 own work limits. New strategies (centralized, MARL) plug in here. A random baseline was dropped (Nov 11): greedy is the simplest baseline.
 
 - **AlwaysCharge** (uncontrolled): plug in whenever possible, full power to 80%; if home can't
   cover the next 24 h + buffer, fill up at the fastest public station.
+- **Central** (`CentralController` + `CentralizedStrategy`): every car shares one controller,
+  which sees the whole fleet (`FleetView`) but only posted prices, and solves one MILP over 96 h
+  (home, work sessions, public visits; minimizes what drivers pay + a big penalty below the
+  buffer). Re-plans at midnight or when any car drifts from the plan. Speed: public stations are
+  offered only to cars that need them; yes/no choices are exact for 48 h, relaxed after.
+  Details: `team_notes/Centralized_Controller_Plan.md`. All cars in a run must use it.
 - **Greedy:** plans 96 h ahead (so a Friday-midnight plan sees Monday), buys the cheapest
   home/work slots that keep SOC >= 20%, never above target, replans when blocked or off plan;
   books the cheapest public station that covers the next 24 h of shortfall.
@@ -128,6 +143,17 @@ Full reasoning: `team_notes/Modeling_Assumptions.md` (A1-A9, M1-M8). Data notes:
 - Crowded (30% no home charger, 1 work charger): drivers use public charging; greedy picks L2,
   always-charge picks DC fast. One greedy driver still dips below 20% when the work charger is
   taken (it can only go public from home).
+- Centralized (Nov 11): same $/kWh as greedy when chargers aren't scarce (same prices), but it
+  removes waiting. January, 10 drivers, 2 work chargers: waiting 28 h -> 0. Crowded July
+  (12 drivers, 1 work charger, 30% no home charger, 2 weeks): greedy 1 missed goal, 16.8 h waiting,
+  18 kWh public; central 0 missed, 0 waiting, no public needed ($0.204 vs $0.206/kWh).
+- When central beats greedy on price (sweep, Nov 16): only when work charging is the cheapest
+  option AND work chargers are scarce. Then greedy cars queue and fall back to home/public prices,
+  while central rotates cars through the charger. 1 charger, 10 drivers, $0.10 work fee: central
+  8-12% lower $/kWh; 12 drivers, 30% no home charger: 19% lower at $0.10, 60% lower with free
+  work charging (greedy 3/12 missed goals, central 0). With 2+ chargers or work pricier than home,
+  they tie. Rule of thumb and full table: `team_notes/Centralized_Controller_Plan.md`.
+  Unexplained: central 0.1-0.4% pricier in some January 2-3 charger runs (tie-break costs / 1% gap?).
 - Greedy creates a midnight "shadow peak" (all homes start together). `--tie-break latest` exists.
 - Work hub and both public stations lose money at these volumes (demand charges; DC fast's
   $350/month EV-L customer charge).
@@ -153,14 +179,14 @@ Full reasoning: `team_notes/Modeling_Assumptions.md` (A1-A9, M1-M8). Data notes:
 ## Git workflow
 
 Branch per feature, pull request into `main`, majority vote on disagreements (`team_notes/TEAM.md`).
-`main` has everything through PR #8 (Nov 11). Branch `centralized-strategy` was cut from the
-Oct 31 commit, so update it from `main` before building on it.
+`main` has everything through PR #9 (Nov 11). The centralized controller is on branch
+`centralized-strategy+controller`.
 
 ## Sprints
 
 | Sprint | Dates | Lead | Focus |
 |---|---|---|---|
-| 4 | Nov 9 - 22 | Nuo | centralized baseline, RL environment + reward, station pricing |
+| 4 | Nov 9 - 22 | Nuo | centralized baseline (done Nov 11), RL environment + reward, station pricing |
 | 5 | Nov 23 - Dec 7 | Lidia & Kathryn | train MARL agents, experiments, final presentation |
 
 If time runs short, drop learning station agents and grid caps first.

@@ -60,6 +60,9 @@ the checkboxes below (`python scripts/make_uml_diagram.py`).
 - [x] Single-hub `Simulation` (hub at work or at home, move-your-car rule) for the earlier runners
 - [x] **`CommuteSimulation`**: home + work + public in one run; cars charge only where the driver is,
       battery drains while driving; step order documented in `commute.py`
+- [x] `FleetView` (`CommuteSimulation.fleet_view()`): full information for the centralized controller
+      only; same day-ahead prices as everyone else
+- [x] `release_charger()` hook: a strategy can free its work charger when its session is over
 - [x] `PlanningView`: what one driver can see (own SOC, schedule, posted prices with on-peak one day
       ahead, own work limits). First version of the agent's observation **(M2)**
 - [x] One output folder per run: `outputs/runX_[parameters]/` with summary.txt and params.json
@@ -101,9 +104,12 @@ the checkboxes below (`python scripts/make_uml_diagram.py`).
       station when home can't cover tomorrow)
 - [x] Baseline: greedy, the simplest baseline (cheapest slots across home and work over 96 h, keeps the 20% buffer,
       replans when blocked, cheapest public station that fits; `strategies/greedy.py`)
-- [ ] Baseline: centralized controller (MILP with PuLP / CBC), branch `centralized-strategy`.
-      Plan and decisions: [Centralized_Controller_Plan.md](Centralized_Controller_Plan.md)
-      (minimizes what drivers pay; sees prices only one day ahead; includes public stations)
+- [x] Baseline: centralized controller (`central_controller.py` + `strategies/centralized.py`):
+      one MILP for the whole fleet (scipy / HiGHS); minimizes what drivers pay; sees prices only one
+      day ahead; plans home, work and public charging. Plan, decisions and first results:
+      [Centralized_Controller_Plan.md](Centralized_Controller_Plan.md); `run_greedy.py --strategy all`
+  - [ ] Optional "system cost" objective that includes the sites' demand charges
+  - [ ] Add value of time to the objective once drivers have one (A7)
 - [ ] Independent learners: contextual bandit (LinTS) first, then PPO (Stable-Baselines3) **(M2)**
 - Dropped (Nov 11): a random baseline. Greedy is the simplest baseline instead.
 
@@ -151,7 +157,12 @@ the checkboxes below (`python scripts/make_uml_diagram.py`).
 
 ---
 
-## 11. Not built yet: Experiments
+## 11. Experiments
+- [x] First sweep: when the centralized controller beats greedy on price (season x work fee x
+      work chargers x share without home charging; `scripts/sweep_central_vs_greedy.py`; results in
+      [Centralized_Controller_Plan.md](Centralized_Controller_Plan.md))
+  - [ ] Explain why central is 0.1-0.4% pricier in some January 2-3 charger runs (tie-break costs?
+        1% optimality gap?)
 - [ ] Train/test split by whole months (price data covers Oct 2024 – Oct 2026,
       e.g. train Oct 2024 – Jun 2026, test Jul – Oct 2026) **(M8)**
 - [ ] Stress tests: July 2025 (big gap), March 2026 (small gap), January 2026 (flipped prices, 81.8¢ spike)

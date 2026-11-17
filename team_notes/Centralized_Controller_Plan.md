@@ -1,6 +1,9 @@
 # Centralized Controller: Plan
 
-Plan for the centralized baseline (TODO section 6), agreed Nov 11, 2026. Branch: `centralized-strategy`.
+Plan for the centralized baseline (TODO section 6), agreed Nov 11, 2026.
+**Status: implemented Nov 11** on branch `centralized-strategy+controller`
+(`ev_charging/central_controller.py`, `ev_charging/strategies/centralized.py`). See
+[Implementation notes and first results](#implementation-notes-and-first-results) at the end.
 Related: [TODO.md](TODO.md), [Modeling_Assumptions.md](Modeling_Assumptions.md), [CLAUDE.md](../CLAUDE.md).
 
 ## Why we need it
@@ -75,8 +78,9 @@ home charging is blocked from `t` until it is back.
 
 **When it plans:** at midnight each day (new day-ahead prices), over the next 96 h, and again whenever
 the actual state drifts from the plan (DC taper, rounding, a car that couldn't plug in).
-**Solver:** PuLP with its built-in CBC solver (`pip install pulp`, no license), with a time limit; it
-keeps the best solution found and logs solve time, optimality gap and objective.
+**Solver:** SciPy's `scipy.optimize.milp` (the HiGHS solver), with a time limit; it keeps the best
+solution found and logs solve time, optimality gap and objective. (The plan first said PuLP + CBC;
+see the implementation notes for why it changed.)
 
 ### 2. `ev_charging/strategies/centralized.py`: `CentralizedStrategy`
 A thin per-car adapter. Every car gets one, all sharing the same controller, so the simulation
@@ -98,21 +102,21 @@ Each call first runs `controller.ensure_plan(now)`, which solves at most once pe
 | `commute.py` | Voluntary unplug in step 2: if `strategy.release_charger()` is True, unplug and park. Otherwise a car that finished its planned session sits on the charger for up to 60 min (move-your-car rule) and blocks the next scheduled car |
 | `strategies/base.py` | `release_charger()` hook, default False, so always-charge and greedy behave exactly as before |
 | `run_greedy.py` | `--strategy` takes a list (`always,greedy,central`); add `--solver-time-limit`. All strategies run on the same drivers and land in the same run folder |
-| `requirements.txt` | add `pulp` |
+| `requirements.txt` | add `scipy` (was `pulp` in the first draft) |
 | Docs | TODO section 6, the diagram box (`scripts/make_uml_diagram.py`), `CLAUDE.md` |
 
 ---
 
 ## Build steps
-- [ ] `release_charger()` hook + voluntary unplug in `commute.py`; test that always-charge and greedy results don't change
-- [ ] `FleetView` (`CommuteSimulation.fleet_view()`), with the day-ahead price rule
-- [ ] `CentralController`: slots, variables, battery / goal / home / work constraints, objective
-- [ ] Public station visits in the MILP (sessions, station capacity, detours, longest stay, back before the commute)
-- [ ] `CentralizedStrategy` + `ensure_plan()` re-planning (midnight + drift)
-- [ ] Runner: `--strategy always,greedy,central`, solver stats in `summary.txt`
-- [ ] Tests (below)
-- [ ] Compare on the standard scenarios: July week (10 drivers), January week, crowded (30% without home charging, 1 work charger)
-- [ ] Docs: TODO, diagram, CLAUDE.md, Modeling_Assumptions (baselines)
+- [x] `release_charger()` hook + voluntary unplug in `commute.py`; test that always-charge and greedy results don't change
+- [x] `FleetView` (`CommuteSimulation.fleet_view()`), with the day-ahead price rule
+- [x] `CentralController`: slots, variables, battery / goal / home / work constraints, objective
+- [x] Public station visits in the MILP (sessions, station capacity, detours, longest stay, back before the commute)
+- [x] `CentralizedStrategy` + `ensure_plan()` re-planning (midnight + drift)
+- [x] Runner: `--strategy always,greedy,central`, solver stats in `summary.txt`
+- [x] Tests (below)
+- [x] Compare on the standard scenarios: July week (10 drivers), January week, crowded (30% without home charging, 1 work charger)
+- [x] Docs: TODO, diagram, CLAUDE.md, Modeling_Assumptions (baselines)
 
 ## Tests
 Small cases where the right answer is known by hand:
@@ -133,3 +137,110 @@ Small cases where the right answer is known by hand:
 - **Plan vs simulation mismatch** (DC taper, partial slots at the start and end of trips): re-plan on drift.
 - **Value of time** is 0 until A7 is built, so the controller may send drivers to a public station
   to save a few cents; the per-visit cost term limits that. Add value of time when A7 lands.
+
+---
+
+## Implementation notes and first results
+
+**Solver: SciPy (HiGHS) instead of PuLP (CBC).** PuLP 4 (current release) is a full API rewrite
+and no longer bundles a solver, so `pip install pulp` alone can't solve anything, and code written
+for PuLP 3 breaks on it. `scipy.optimize.milp` ships the HiGHS solver inside SciPy: one standard
+dependency with Windows wheels and a stable API. The model is built as a sparse matrix by a small
+helper (`_Model` in `central_controller.py`).
+
+**Keeping solves fast.** The first version took ~20 s per solve with 10 cars (about 9,700 yes/no
+variables, mostly public-station options nobody used). Two changes brought it to 1–5 s with the
+same results:
+- Public stations "as needed": solve without them first; only if some car can't keep the buffer,
+  solve again offering stations to just those cars (`public="always"` offers them to everyone).
+- Yes/no choices are exact for the first 48 hours and relaxed to fractions after that
+  (`binary_hours`); the plan is redone every midnight anyway.
+
+**How the plan meets the simulation.**
+- Every car must use a `CentralizedStrategy` pointing at the same controller.
+- The controller re-plans at most once per step: at midnight (new day-ahead prices), when the
+  plan runs out, or when any car's charge drifts more than 0.05 kWh from the plan.
+- A car frees its work charger the moment its planned session ends (`release_charger()`), so the
+  next scheduled car never finds it occupied; such releases are counted as `releases`.
+- A planned public visit leaves home one slot before it can plug in; home charging is blocked
+  from the leave slot until the car is back, and both detour legs are counted at the leave slot.
+- If the solver ever fails, cars fall back to greedy (counted in the summary).
+
+**First results** (`run_greedy.py --strategy ...`; compare $/kWh, waiting and missed goals, since
+always-charge fills to 80% while greedy and central buy only what the goal needs):
+
+| Scenario | Strategy | $/kWh | Hours waiting | Public kWh | Missed goal | Solves |
+|---|---|---|---|---|---|---|
+| July week, 10 drivers, 3 work chargers (default) | always | 0.253 | 105 | 0 | 0/10 | |
+| | greedy | 0.196 | 0 | 0 | 0/10 | |
+| | central | 0.196 | 0 | 0 | 0/10 | 7, slowest 1.6 s |
+| January week, 10 NHTS drivers, 2 work chargers, 30% no home charger | greedy | 0.250 | 28 | 0 | 0/10 | |
+| | central | 0.250 | 0 | 0 | 0/10 | 7, slowest 9.8 s |
+| July, 2 weeks, 12 NHTS drivers, 1 work charger, 30% no home charger | always | 0.304 | 450 | 106 | 0/12 | |
+| | greedy | 0.206 | 16.8 | 18 | 1/12 (4 trips below 20%) | |
+| | central | 0.204 | 0 | 0 | 0/12 | 14, slowest 4.9 s |
+
+What this says so far: with the same posted prices, central can't beat greedy on price per kWh
+when chargers aren't scarce (they find the same cheapest slots). Its value is coordination: when
+chargers are scarce it schedules turns, so nobody waits and nobody misses the goal or has to pay
+for public charging. That's the gap the independent learners should try to close.
+
+**Still open:** a "system cost" objective with the sites' demand charges; value of time once
+drivers have one (A7); the diagram and Modeling_Assumptions updates are done.
+
+---
+
+## When does central beat greedy on price? (sweep, Nov 16)
+
+Greedy and central see the same posted prices, so when chargers are plentiful they pick the same
+cheapest slots and pay the same $/kWh; central only removes waiting. Central pays less per kWh
+**only when both are true**:
+
+1. **Work charging is the cheapest option**: cheaper than home off-peak (about $0.19/kWh in July,
+   $0.27 in January, with delivery) and the public stations ($0.39 / $0.485).
+2. **Work chargers are scarce** (here: 1 charger for 10-12 drivers).
+
+Why: greedy drivers all head for the cheap work charger. Each one keeps it until its own need is
+met, then sits idle until the move-your-car rule moves it (up to 60 min); drivers stuck in line fall
+back to home or public charging at a higher price, and some dip below the buffer. Central rotates
+cars through the charger and frees it the moment each session ends, so more of the fleet's energy
+comes at the work price.
+
+**Rule of thumb:** central's advantage in $/kWh ≈ (share of greedy's energy pushed off the work
+charger) × (fallback price − work price). Make it bigger with a wider price gap (free or cheap work
+charging, winter home rates) or more drivers per work charger.
+
+**Sweep** (`python scripts/sweep_central_vs_greedy.py`; 10 NHTS commuters, seed 3, 1 week, start
+at 50%; each row covers 10% and 50% without a home charger, which barely changed the result):
+
+| Season | Work fee | Work chargers | Greedy $/kWh | Central $/kWh | Central vs greedy |
+|---|---|---|---|---|---|
+| July | $0.10 | 1 | 0.109–0.112 | 0.100 | **8–11% lower** |
+| January | $0.10 | 1 | 0.111–0.113 | 0.100 | **9–12% lower** |
+| January | $0.25 | 1 | 0.254–0.255 | 0.250 | **1.5–2% lower** |
+| July or January | $0.10 | 2 or 3 | 0.100 | 0.100 | same (greedy waits 12–28 h but still gets it all at work) |
+| July | $0.25 | 1–3 | 0.197–0.209 | 0.196–0.209 | same (home off-peak is cheaper, so nobody wants work) |
+
+In the 1-charger cases greedy also left 1 driver below the 20% buffer and waited 76 h in total;
+central had no missed goals and no waiting.
+
+**Larger gaps** (12 NHTS commuters, 1 work charger, 30% without a home charger, 1 week of July):
+
+| Work fee | Greedy $/kWh | Central $/kWh | Central vs greedy | Greedy: public kWh / waiting / missed goal | Central |
+|---|---|---|---|---|---|
+| $0.10 | 0.143 | 0.116 | **19% lower** | 15.7 kWh / 107.5 h / 3 of 12 | 0 / 0 / 0 |
+| free (many employers) | 0.082 | 0.033 | **60% lower** | 15.7 kWh / 107.5 h / 3 of 12 | 0 / 0 / 0 |
+
+```
+python run_greedy.py --strategy greedy,central --work-price 0 --chargers 1 --evs 12 --no-home-share 0.3 --sample-drivers --seed 3
+python run_greedy.py --strategy greedy,central --work-price 0.10 --chargers 1 --evs 12 --no-home-share 0.3 --sample-drivers --seed 3
+```
+
+**Caveat (not yet explained):** in some January runs with 2-3 work chargers and a $0.25 work fee,
+central was 0.1-0.4% *more* expensive: it bought 2-9 kWh at home ($0.27) instead of at work
+($0.25). Likely causes: the small tie-break costs (1¢ per work session, 0.1¢ per plugged slot) and
+the solver's 1% optimality gap. Worth checking before quoting central as a lower bound on cost.
+
+**For the presentation:** use a scarce, cheap-work scenario (e.g. free or $0.10 work charging, 1
+charger for 10-12 drivers) to show what coordination is worth, alongside the default July week
+(where greedy and central tie) to show it's not a price-foresight effect.

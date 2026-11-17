@@ -5,9 +5,10 @@ Two simulations use strategies:
   - Simulation (one hub) calls decide(): charge this step or wait.
   - CommuteSimulation (home + work + public) calls wants_charger() when the car
     is at work without a charger, charge_limit_kwh() every step it is plugged in
-    at home or work, and public_visit() while the car is at home (go to a public
-    station now?). The first two default to decide(), so a decide()-only
-    strategy works in both simulations; public_visit() defaults to never.
+    at home or work, public_visit() while the car is at home (go to a public
+    station now?), and release_charger() while it holds a work charger (unplug
+    now?). The first two default to decide(), so a decide()-only strategy works
+    in both simulations; public_visit() and release_charger() default to never.
 """
 from __future__ import annotations
 
@@ -52,6 +53,12 @@ class Strategy(ABC):
         """At home: drive to a public station now? Return (station name, battery-side
         kWh to add) or None. `view` is a PlanningView (commute.py)."""
         return None
+
+    def release_charger(self, ev, ctx: ChargeContext) -> bool:
+        """Holding a work charger: unplug now and free it for someone else? The car
+        then parks for the rest of the day, like the move-your-car rule. Default:
+        never (cars stay until the move-your-car rule or the daily limit moves them)."""
+        return False
 
 
 class AlwaysCharge(Strategy):

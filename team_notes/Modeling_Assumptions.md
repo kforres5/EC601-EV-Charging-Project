@@ -164,7 +164,8 @@ moves the car to a regular spot for the rest of the day.
 - **Grid:** peak load, share of time at `P_max` / transformer cap.
 
 Baselines: greedy (cheapest slot; the simplest baseline) and centralized optimization (a controller
-that coordinates all cars, seeing prices one day ahead). Always-charge is kept as an uncontrolled
+that coordinates all cars, seeing prices one day ahead; implemented Nov 11, see
+Centralized_Controller_Plan.md). Always-charge is kept as an uncontrolled
 reference. A random baseline was dropped (Nov 11): it says little that greedy doesn't.
 
 ### M8. Train / test split

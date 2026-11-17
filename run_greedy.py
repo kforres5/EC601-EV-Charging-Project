@@ -1,5 +1,5 @@
-"""Greedy vs always-charge: commuting drivers who charge at home, at work, and at
-public stations.
+"""Compare charging strategies: commuting drivers who charge at home, at work, and
+at public stations.
 
 Each driver has a home charger (Level 2, Level 1 or none; 10% have none, from
 NREL) and shares the work hub. Home: Eversource CT residential supply + Rate 7
@@ -7,12 +7,14 @@ delivery, paid by the household. Work: flat $0.25/kWh fee, 4 h/day limit,
 move-your-car rule; the hub pays small C&I supply + Rate 27. Public: a Level 2
 lot ($0.39/kWh) and a DC fast station ($0.485/kWh), prices from
 dataset/charger_prices_summary.csv; each pays its own bill (Rate 27 / Rate EV-L).
-Both strategies run on the same drivers and prices:
-  - always-charge: plug in whenever possible, charge at full power to --target;
-    if home can't cover tomorrow, fill up at the fastest public station
-  - greedy: buy the cheapest home/work slots that keep the battery above the
-    buffer (next driving + 20%), replanning when blocked; book the cheapest
-    public station that fits when home + work fall short
+Every strategy runs on the same drivers and prices (--strategy, comma list):
+  - always: uncontrolled reference: plug in whenever possible, charge at full
+    power to --target; if home can't cover tomorrow, fill up at the fastest station
+  - greedy: the simplest baseline: each driver buys the cheapest home/work slots
+    that keep the battery above the buffer (next driving + 20%), replanning when
+    blocked; books the cheapest public station that fits when home + work fall short
+  - central: one controller plans every car together (MILP, scipy / HiGHS); same
+    posted prices as greedy, plus coordination (team_notes/Centralized_Controller_Plan.md)
 
     python run_greedy.py                               # 10 drivers, 3 work chargers, 1 week of July 2025
     python run_greedy.py --start 2026-01-05            # winter: work fee cheaper than home off-peak
@@ -22,9 +24,11 @@ Both strategies run on the same drivers and prices:
     python run_greedy.py --no-public                   # home + work only
     python run_greedy.py --plot                        # dashboards in the run folder
     python run_greedy.py --animate --anim-days 2       # animated GIF of the first 2 days, per strategy
+    python run_greedy.py --strategy always,greedy,central   # add the centralized controller
+    python run_greedy.py --strategy greedy,central --start 2026-01-05 --chargers 2 --no-home-share 0.3
 
 Each run gets its own folder: outputs/runX_[parameters]/ with summary.txt, params.json and
-any charts, e.g. outputs/run4_greedy-vs-always_evs-10_chargers-3_days-7_start-2025-07-07/
+any charts, e.g. outputs/run4_always-vs-greedy_evs-10_chargers-3_days-7_start-2025-07-07/
 (see ev_charging/run_output.py).
 """
 from __future__ import annotations
@@ -45,8 +49,28 @@ from ev_charging.run_output import run_folder
 from ev_charging.strategies import AlwaysCharge, Greedy
 from ev_charging.tariffs import load_public_prices
 
-STRATEGIES = {"always": lambda a: AlwaysCharge(),
-              "greedy": lambda a: Greedy(horizon_hours=a.horizon, tie_break=a.tie_break)}
+def _central(a, sim):
+    from ev_charging.central_controller import CentralController
+    from ev_charging.strategies.centralized import CentralizedStrategy
+    controller = CentralController(sim.fleet_view(), horizon_hours=a.horizon,
+                                   time_limit=a.solver_time_limit, public=a.central_public)
+    return CentralizedStrategy(controller)
+
+
+# name -> factory(args, sim) returning the strategy every car in that run shares
+STRATEGIES = {"always": lambda a, sim: AlwaysCharge(),
+              "greedy": lambda a, sim: Greedy(horizon_hours=a.horizon, tie_break=a.tie_break),
+              "central": _central}
+ALIASES = {"both": "always,greedy", "all": "always,greedy,central"}
+
+
+def strategy_names(text: str) -> list[str]:
+    names = [x.strip() for x in ALIASES.get(text, text).split(",") if x.strip()]
+    bad = [x for x in names if x not in STRATEGIES]
+    if bad or not names:
+        raise SystemExit(f"--strategy: unknown {bad}; use a comma list of {list(STRATEGIES)} "
+                         f"or one of {list(ALIASES)}")
+    return list(dict.fromkeys(names))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,9 +102,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="give each driver a real NHTS 2022 commuter's schedule")
     ap.add_argument("--region", choices=["us", "new-england"], default="us")
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--strategy", choices=["both", *STRATEGIES], default="both")
+    ap.add_argument("--strategy", default="always,greedy",
+                    help="comma list of always, greedy, central (or 'both' = always,greedy; "
+                         "'all' = all three)")
     ap.add_argument("--horizon", type=float, default=96,
-                    help="greedy planning horizon (hours); 96 h lets a Friday plan see Monday")
+                    help="greedy / central planning horizon (hours); 96 h lets a Friday plan see Monday")
+    ap.add_argument("--solver-time-limit", type=float, default=60,
+                    help="central: seconds per solve (keeps the best plan found)")
+    ap.add_argument("--central-public", choices=["as_needed", "always"], default="as_needed",
+                    help="central: offer public stations only to cars that need them (faster) or to all")
     ap.add_argument("--tie-break", choices=["earliest", "latest"], default="earliest",
                     help="greedy: among equally cheap slots, charge earliest or latest")
     ap.add_argument("--plot", action="store_true", help="save a dashboard PNG per strategy")
@@ -138,12 +168,18 @@ def drivers_for(a, cfg: CommuteConfig):
     return list(zip(profiles, types))
 
 
-def run_one(cfg: CommuteConfig, drivers, strategy, a, record: bool) -> CommuteResult:
+def run_one(cfg: CommuteConfig, drivers, name: str, a, record: bool) -> CommuteResult:
     sim = CommuteSimulation(cfg, record=record)
+    strategy = STRATEGIES[name](a, sim)
     for i, (profile, home) in enumerate(drivers, 1):
         sim.add_driver(EV.from_vehicle(f"ev-{i}", cfg.vehicle, soc=a.soc, required_soc=a.target,
                                        driver=profile, strategy=strategy), home)
-    return sim.run()
+    result = sim.run()
+    controller = getattr(strategy, "controller", None)
+    if controller is not None:
+        result.notes = controller.summary() + (
+            f"; {strategy.fallback_calls} greedy fallbacks" if strategy.fallback_calls else "")
+    return result
 
 
 def print_setup(cfg: CommuteConfig, drivers, a) -> None:
@@ -220,10 +256,25 @@ def print_result(r: CommuteResult) -> None:
               f"{', ' + tiers if tiers else ''}) = margin ${st.margin:.2f}")
 
 
+def print_comparison(results: dict[str, CommuteResult]) -> None:
+    print("\n=== Comparison (same drivers, same posted prices) ===")
+    print(f"  {'strategy':10} {'paid':>9} {'kWh':>7} {'$/kWh':>7} {'on-peak':>8} {'public kWh':>10} "
+          f"{'waiting h':>9} {'missed goal':>11}")
+    for name, r in results.items():
+        kwh = sum(e.energy_kwh for e in r.ev_results)
+        on = sum(e.on_peak_kwh for e in r.ev_results)
+        print(f"  {name:10} {r.total_cost:9.2f} {kwh:7.1f} {r.total_cost / kwh if kwh else 0:7.3f} "
+              f"{on / kwh if kwh else 0:8.0%} {sum(e.public_kwh for e in r.ev_results):10.1f} "
+              f"{sum(e.work_waiting_hours + e.public_waiting_hours for e in r.ev_results):9.1f} "
+              f"{sum(e.missed_goal for e in r.ev_results):>6}/{len(r.ev_results)}")
+    print("  Strategies charge different amounts (greedy and central buy only what the goal needs),"
+          " so compare $/kWh, waiting and missed goals, not totals.")
+
+
 def main() -> None:
     ap = build_parser()
     a = ap.parse_args()
-    label = "greedy-vs-always" if a.strategy == "both" else a.strategy
+    label = "-vs-".join(strategy_names(a.strategy))
     with run_folder(a, ap, label, always=("evs", "chargers", "days", "start"), skip=("strategy",)):
         run(a)
 
@@ -232,18 +283,17 @@ def run(a) -> None:
     cfg = build_config(a)
     drivers = drivers_for(a, cfg)
     print_setup(cfg, drivers, a)
-    names = list(STRATEGIES) if a.strategy == "both" else [a.strategy]
+    names = strategy_names(a.strategy)
     results = {}
     for name in names:
-        results[name] = run_one(cfg, drivers, STRATEGIES[name](a), a,
-                                record=a.plot or a.show or a.animate)
+        if name == "central":
+            print(f"\n(central: solving the fleet plan, up to {a.solver_time_limit:g} s per solve...)")
+        results[name] = run_one(cfg, drivers, name, a, record=a.plot or a.show or a.animate)
         print_result(results[name])
-    if len(results) == 2:
-        al, gr = results["always"], results["greedy"]
-        kwh = lambda r: sum(e.energy_kwh for e in r.ev_results)
-        print(f"\nGreedy vs always-charge: avg price ${gr.total_cost / kwh(gr):.3f} vs "
-              f"${al.total_cost / kwh(al):.3f} per kWh; greedy charges only what the goal needs "
-              f"({kwh(gr):.0f} vs {kwh(al):.0f} kWh), so compare $/kWh, not totals.")
+        if getattr(results[name], "notes", None):
+            print(f"  {results[name].notes}")
+    if len(results) > 1:
+        print_comparison(results)
     if a.plot or a.show:
         from ev_charging.viz import plot_commute_dashboard
         for name, r in results.items():

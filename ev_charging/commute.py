@@ -43,7 +43,8 @@ prices (via PlanningView), and its own work limits.
 Step order (15 minutes by default):
   0. cars at a public station leave once done; cars at home may head out to one
   1. cars whose driver left a site unplug
-  2. work rules (move-your-car, daily limit) move cars off work chargers
+  2. work rules: a strategy may release its work charger (release_charger);
+     move-your-car and the daily limit move cars off work chargers
   3. cars at home plug into their own charger; cars at work ask their strategy
      whether to plug in; cars at a station plug in; no charger free = wait
   4. plugged-in cars charge (strategy picks how much; at a station, the visit's target)
@@ -95,6 +96,7 @@ class CommuteEVResult:
     work_plugged_hours: float
     moves: int                      # moved off a work charger by the move-your-car rule
     limit_moves: int                # moved off a work charger by the daily limit
+    releases: int = 0               # unplugged at work by its own strategy (release_charger)
     public_kwh: float = 0.0
     public_cost: float = 0.0
     public_visits: int = 0
@@ -152,6 +154,7 @@ class CommuteResult:
     peak_home_at: Optional[datetime] = None
     strategy: str = ""
     stations: list[StationResult] = field(default_factory=list)
+    notes: str = ""                 # e.g. the central controller's solver summary
 
     @property
     def total_cost(self) -> float:
@@ -249,6 +252,67 @@ class PlanningView:
             return site.driver_price(self.now)
 
 
+class FleetView:
+    """Full-information view for a centralized controller (central_controller.py):
+    every car's state, schedule and work-charging use, and every site's chargers.
+    Prices still follow the posted, day-ahead rule (`price_forecast`, same as
+    PlanningView), so the controller can't see future prices any driver couldn't.
+    Decentralized strategies never get this view; they get a PlanningView."""
+
+    def __init__(self, sim: "CommuteSimulation") -> None:
+        self._sim = sim
+
+    # -- time and settings
+    @property
+    def now(self) -> datetime:
+        return self._sim.clock.now
+
+    @property
+    def step(self) -> timedelta:
+        return self._sim.clock.step
+
+    @property
+    def step_hours(self) -> float:
+        return self._sim.clock.step_hours
+
+    @property
+    def cfg(self) -> CommuteConfig:
+        return self._sim.cfg
+
+    # -- cars and sites
+    @property
+    def evs(self) -> list[EV]:
+        return list(self._sim.evs)
+
+    @property
+    def work(self) -> Site:
+        return self._sim.work
+
+    @property
+    def public_stations(self) -> list[Site]:
+        return list(self._sim.public.values())
+
+    def view(self, ev: EV) -> PlanningView:
+        """The car's own PlanningView (home charger, power, prices, work limits)."""
+        return PlanningView(self._sim, ev)
+
+    def itinerary(self, ev: EV) -> Itinerary:
+        return self._sim.itinerary[ev.ev_id]
+
+    def plugged_at(self, ev: EV) -> Optional[Site]:
+        return self._sim._plugged.get(ev.ev_id)
+
+    def can_use_work_today(self, ev: EV) -> bool:
+        """False once the car has been moved off a work charger today."""
+        return ev.ev_id not in self._sim._parked
+
+    def worked_today(self, ev: EV) -> bool:
+        """True if the car has already had a work-charging session today."""
+        today = self.now.date()
+        return (self._sim._work_plugged_day[ev.ev_id].get(today, 0.0) > 0
+                or ev.ev_id in self._sim._parked)
+
+
 def site_peak_hour(site: Site) -> int:
     peak = getattr(site.supply, "peak", None)
     return peak.start_hour if peak is not None else 12
@@ -298,6 +362,10 @@ class CommuteSimulation:
         self.itinerary[ev.ev_id] = Itinerary(ev.driver)
         self.evs.append(ev)
         self._stats[ev.ev_id] = defaultdict(float, min_soc=ev.soc)
+
+    def fleet_view(self) -> FleetView:
+        """Full information, for a centralized controller only (see FleetView)."""
+        return FleetView(self)
 
     def run(self) -> CommuteResult:
         steps = 0
@@ -404,7 +472,11 @@ class CommuteSimulation:
                 continue
             idle = self._idle_since.get(ev.ev_id)
             used = self._work_plugged_day[ev.ev_id].get(today, 0.0)
-            if w.move_window is not None and idle is not None and now >= idle + w.move_window:
+            if ev.strategy.release_charger(ev, self._ctx(ev, w, now)):
+                self._unplug(ev)
+                self._parked.add(ev.ev_id)
+                self._stats[ev.ev_id]["releases"] += 1
+            elif w.move_window is not None and idle is not None and now >= idle + w.move_window:
                 self._unplug(ev)
                 self._parked.add(ev.ev_id)
                 self._stats[ev.ev_id]["moves"] += 1
@@ -602,6 +674,7 @@ class CommuteSimulation:
                 work_waiting_hours=s["work_waiting_hours"],
                 work_plugged_hours=s["work_plugged_hours"],
                 moves=int(s["moves"]), limit_moves=int(s["limit_moves"]),
+                releases=int(s["releases"]),
                 public_kwh=s["public_kwh"], public_cost=s["public_cost"],
                 public_visits=int(s["public_visits"]), public_hours=s["public_hours"],
                 public_waiting_hours=s["public_waiting_hours"],
