@@ -53,6 +53,12 @@ class Visit:
     def back(self) -> datetime:
         return self.end_of_stay + self.station.detour
 
+    @property
+    def duration_hours(self) -> float:
+        """Hours away from home on this visit, out and back. Uses planned_depart
+        until the car actually leaves the station."""
+        return (self.back - self.leave).total_seconds() / 3600
+
     def pieces(self) -> list[tuple[datetime, datetime, Location, float]]:
         """(start, end, location, miles) for the trip out, the stay and the trip back."""
         return [(self.leave, self.arrive, Location.DRIVING, self.station.detour_miles),
@@ -127,6 +133,19 @@ class Itinerary:
     def active_visit(self, t: datetime) -> Optional[Visit]:
         """The visit the car is on at t (driving there, at the station, or driving back)."""
         return next((v for v in self.visits if v.leave <= t < v.back), None)
+
+    def visit_hours(self, start: datetime, end: datetime) -> float:
+        """Hours of [start, end) spent on public-station visits (detours included)."""
+        total = 0.0
+        for v in self.visits:
+            lo, hi = max(v.leave, start), min(v.back, end)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 3600
+        return total
+
+    def visit_time_cost(self, start: datetime, end: datetime) -> float:
+        """Dollar value of the time spent on visits in [start, end)."""
+        return self.driver.time_cost(self.visit_hours(start, end))
 
     def next_home_departure(self, t: datetime) -> datetime:
         """When the routine next takes the car away from home, after t."""

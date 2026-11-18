@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 
+import math
+
 
 class Location(str, Enum):
     HOME = "home"
@@ -34,6 +36,9 @@ class DriverProfile:
     commute_miles: float = 10.5          # one way
     commute_minutes: int = 25            # one way
     work_days: tuple[int, ...] = (0, 1, 2, 3, 4)   # Mon=0 .. Sun=6
+    # What one hour of this driver's time is worth, $/hour (reward term, assumption A7).
+    # PLACEHOLDER (TBD): 0.0 = time is free, so earlier results are unchanged.
+    value_of_time_per_hour: float = 0.0
 
     def __post_init__(self) -> None:
         if self.work_start >= self.work_end:
@@ -50,6 +55,8 @@ class DriverProfile:
         back = datetime.combine(day, self.work_end) + self._commute
         if leave.date() != day or back > datetime.combine(day, time()) + timedelta(days=1):
             raise ValueError("commutes must start and end on the same day")
+        if not (math.isfinite(self.value_of_time_per_hour) and self.value_of_time_per_hour >= 0):
+            raise ValueError("value_of_time_per_hour must be a finite number >= 0")
 
     # ------------------------------------------------------------- basics
     @property
@@ -66,6 +73,12 @@ class DriverProfile:
 
     def daily_miles(self, d: date) -> float:
         return 2 * self.trip_miles if self.works_on(d) else 0.0
+
+    def time_cost(self, hours: float) -> float:
+        """Dollar value of `hours` of this driver's time."""
+        if hours < 0:
+            raise ValueError("hours must be >= 0")
+        return self.value_of_time_per_hour * hours
 
     # ----------------------------------------------------------- schedule
     def segments(self, d: date) -> list[tuple[datetime, datetime, Location]]:
