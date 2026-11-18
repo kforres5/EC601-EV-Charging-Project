@@ -91,6 +91,39 @@ class EversourcePriceSchedule:
         on, off = self.rates_for(t.date())
         return on if self.is_on_peak(t) else off
 
+class FixedBlockPriceSchedule:
+    """On/off-peak supply prices held fixed for each block of `months` (Jan-Jun,
+    Jul-Dec), at the block's average of the daily rates in the price CSV.
+
+    Wraps an EversourcePriceSchedule, so it plugs in anywhere a PriceSchedule does."""
+
+    def __init__(self, base: EversourcePriceSchedule, months: int = 6) -> None:
+        if 12 % months:
+            raise ValueError("months must divide 12")
+        self.base = base
+        self.peak = base.peak                    # site_peak_hour() in commute.py reads this
+        self.months = months
+        self._cache: dict[tuple[int, int], tuple[float, float]] = {}
+
+    def rates_for(self, d: date) -> tuple[float, float]:
+        """(on_peak, off_peak) $/kWh for the block containing d."""
+        if not (self.base.first_date <= d <= self.base.last_date):
+            return self.base.rates_for(d)        # raises the same KeyError past the data
+        first_month = (d.month - 1) // self.months * self.months + 1
+        key = (d.year, first_month)
+        if key not in self._cache:
+            rows = [v for k, v in self.base._rates.items()
+                    if k.year == d.year and first_month <= k.month < first_month + self.months]
+            self._cache[key] = (sum(r[0] for r in rows) / len(rows),
+                                sum(r[1] for r in rows) / len(rows))
+        return self._cache[key]
+
+    def is_on_peak(self, t: datetime) -> bool:
+        return self.peak.is_on_peak(t)
+
+    def price_at(self, t: datetime) -> float:
+        on, off = self.rates_for(t.date())
+        return on if self.is_on_peak(t) else off
 
 def build_price_schedule(cfg: ScenarioConfig) -> PriceSchedule:
     if cfg.price_csv is not None:

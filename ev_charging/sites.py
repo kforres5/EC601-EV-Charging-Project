@@ -10,15 +10,15 @@ Prices at a site:
     it's a pass-through)
 """
 from __future__ import annotations
-from typing import Hashable, Optional
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Hashable, Optional
 
 from .config import CommuteConfig, PublicStationConfig
 from .driver import Location
-from .pricing import (DeliveredPriceSchedule, EversourcePriceSchedule, FlatTOUPriceSchedule,
-                      PriceSchedule)
+from .pricing import (DeliveredPriceSchedule, EversourcePriceSchedule, FixedBlockPriceSchedule,
+                      FlatTOUPriceSchedule, PriceSchedule)
 from .station import ChargingStation
 from .tariffs import DeliveryRate, EVLRate, SiteMeter, get_rate, load_public_prices
 
@@ -42,7 +42,6 @@ class Site:
     max_dwell: Optional[timedelta] = None
     meter: SiteMeter = field(default_factory=SiteMeter)   # billed for work and public sites
     p_max_kw: Optional[float] = None        # grid connection limit (grid-side kW); None = uncapped
-    fixed_cost_per_day=w.num_chargers * w.fixed_cost_per_charger_year / 365,
     fixed_cost_per_day: float = 0.0         # network + maintenance: home L2 owner pays it daily;
                                             # public: station owes it, drivers split it (commute.py)
 
@@ -71,9 +70,10 @@ class Site:
 
 
 def supply_schedule(cfg: CommuteConfig, customer_class: str) -> PriceSchedule:
+    peak = cfg.peak_for(customer_class)
     if cfg.price_csv is not None:
-        return EversourcePriceSchedule(cfg.price_csv, customer_class, cfg.peak)
-    return FlatTOUPriceSchedule(cfg.fallback_on_peak_price, cfg.fallback_off_peak_price, cfg.peak)
+        return EversourcePriceSchedule(cfg.price_csv, customer_class, peak)
+    return FlatTOUPriceSchedule(cfg.fallback_on_peak_price, cfg.fallback_off_peak_price, peak)
 
 
 def _utility(supply: PriceSchedule, rate, include_delivery: bool) -> PriceSchedule:
@@ -97,6 +97,7 @@ def build_work_site(cfg: CommuteConfig) -> Site:
         move_window=None if w.move_window_minutes is None else timedelta(minutes=w.move_window_minutes),
         daily_limit=None if w.daily_limit_hours is None else timedelta(hours=w.daily_limit_hours),
         p_max_kw=w.p_max_kw,
+        fixed_cost_per_day=w.num_chargers * w.fixed_cost_per_charger_year / 365,
     )
 
 
@@ -105,7 +106,10 @@ class HomeSiteFactory:
 
     def __init__(self, cfg: CommuteConfig) -> None:
         self.cfg = cfg
-        self.supply = supply_schedule(cfg, cfg.home.customer_class)
+        supply = supply_schedule(cfg, cfg.home.customer_class)
+        if cfg.home.price_mode == "fixed_tou" and isinstance(supply, EversourcePriceSchedule):
+            supply = FixedBlockPriceSchedule(supply)
+        self.supply = supply
         self.rate = get_rate(cfg.home.site_rate)
         if isinstance(self.rate, EVLRate):
             raise ValueError("Rate EV-L is for charging stations, not homes")

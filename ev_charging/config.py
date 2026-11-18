@@ -1,10 +1,12 @@
 """Scenario / Config module: every tunable assumption lives here."""
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+
 
 from .driver import DriverProfile
 from .paths import EVERSOURCE_CSV
@@ -23,9 +25,11 @@ DEFAULT_SITE_RATE = {"residential": "7", "small_commercial": "27",
 # Share of residential charging done on Level 1 vs Level 2 (dataset/home_charging.txt;
 # NREL ATB 2024 and Joule 2020), among drivers who have a home charger.
 HOME_CHARGER_MIX = {"L1": 0.16, "L2": 0.84}
+NO_HOME_SHARE = {"national": 0.10}           # add "CT" / "Boston" from the NREL county data
 # Home charger power (grid side): Level 1 = 120 V / 12 A, Level 2 = 240 V / 30 A.
 HOME_CHARGER_KW = {"L1": 1.4, "L2": 7.2}
 HOME_CHARGER_TYPES = ("L2", "L1", "none")
+PRICE_MODES = ("variable", "fixed_tou")
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,26 @@ class PeakWindow:
         if t.date() in self.holidays:
             return False
         return self.start_hour <= t.hour < self.end_hour
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
+    """n-th given weekday of the month (Mon=0); n=-1 means the last one."""
+    if n > 0:
+        d = date(year, month, 1)
+        return d + timedelta(days=(weekday - d.weekday()) % 7 + 7 * (n - 1))
+    d = date(year, month, calendar.monthrange(year, month)[1])
+    return d - timedelta(days=(d.weekday() - weekday) % 7)
+
+
+def standard_holidays(years) -> tuple[date, ...]:
+    """New Year's, Memorial Day, July 4, Labor Day, Thanksgiving, Christmas.
+    A Sunday holiday moves to Monday. CONFIRM the list against the tariff text."""
+    out = []
+    for y in years:
+        for d in (date(y, 1, 1), _nth_weekday(y, 5, 0, -1), date(y, 7, 4),
+                  _nth_weekday(y, 9, 0, 1), _nth_weekday(y, 11, 3, 4), date(y, 12, 25)):
+            out.append(d + timedelta(days=1) if d.weekday() == 6 else d)
+    return tuple(sorted(out))
 
 
 @dataclass(frozen=True)
@@ -188,6 +212,9 @@ class HomeChargingConfig:
     """Each driver's own home charger, billed on the household's meter."""
     customer_class: str = "residential"
     site_rate: Optional[str] = None                # None -> Rate 7 (residential time-of-day)
+    # "variable": daily on-peak / monthly off-peak supply prices from the CSV.
+    # "fixed_tou": one on/off-peak pair held for each 6-month block (Jan-Jun, Jul-Dec).
+    price_mode: str = "variable"
     charger_kw: tuple[tuple[str, float], ...] = tuple(HOME_CHARGER_KW.items())
     # Share of EV drivers with no home charger (renters, street parking).
     # 10%: NREL's 2030 National Charging Network study (Wood et al. 2023) assumes 90% of
@@ -195,7 +222,8 @@ class HomeChargingConfig:
     # EV-driver surveys agree: 5.8% without (Plug In America 2025, n~4,500) to 14%
     # (ChargeLab 2024, n=500). Mass-market adoption would push this up: only 33% of
     # all US light-duty vehicles park where home charging exists today (NREL, Ge et al. 2021).
-    no_home_share: float = 0.10
+    region: str = "national"
+    no_home_share: Optional[float] = None    # was 0.10; None -> NO_HOME_SHARE[region]
     # Network + maintenance for a home L2 charger, $/year: $1,700 per 2-port L2 = $850 per port.
     # Billed to the owner as a flat daily surcharge (this / 365 per day), whether or not
     # they charge that day. L1 has none.
@@ -206,10 +234,16 @@ class HomeChargingConfig:
             raise ValueError(f"customer_class must be one of {CUSTOMER_CLASSES}")
         if self.site_rate is None:
             object.__setattr__(self, "site_rate", DEFAULT_SITE_RATE[self.customer_class])
+        if self.no_home_share is None:
+            if self.region not in NO_HOME_SHARE:
+                raise ValueError(f"region must be one of {sorted(NO_HOME_SHARE)}")
+            object.__setattr__(self, "no_home_share", NO_HOME_SHARE[self.region])
         if not 0 <= self.no_home_share <= 1:
             raise ValueError("no_home_share must be in [0, 1]")
         if self.l2_fixed_cost_per_year < 0:
             raise ValueError("l2_fixed_cost_per_year must be >= 0")
+        if self.price_mode not in PRICE_MODES:
+            raise ValueError(f"price_mode must be one of {PRICE_MODES}")
 
     def kw(self, charger_type: str) -> float:
         return dict(self.charger_kw)[charger_type]
@@ -320,6 +354,12 @@ class CommuteConfig:
     prorate_fixed_charges: bool = True
     fallback_on_peak_price: float = 0.35              # used only when price_csv is None
     fallback_off_peak_price: float = 0.15
+    # Classes whose on-peak hours differ from `peak`,
+    # e.g. (("large_commercial", PeakWindow(start_hour=..., end_hour=...)),)
+    peak_overrides: tuple[tuple[str, PeakWindow], ...] = ()
+
+    def peak_for(self, customer_class: str) -> PeakWindow:
+        return dict(self.peak_overrides).get(customer_class, self.peak)
 
     def __post_init__(self) -> None:
         if self.step_minutes <= 0 or 60 % self.step_minutes:
@@ -336,6 +376,8 @@ class CommuteConfig:
         names = [p.name for p in self.public]
         if len(set(names)) != len(names) or "work" in names:
             raise ValueError("public station names must be unique and not 'work'")
+        if not {c for c, _ in self.peak_overrides} <= set(CUSTOMER_CLASSES):
+            raise ValueError(f"peak_overrides keys must be in {CUSTOMER_CLASSES}")
 
 
 def assign_home_chargers(n: int, shares: dict[str, float]) -> list[str]:

@@ -182,9 +182,8 @@ class CommuteResult:
     strategy: str = ""
     stations: list[StationResult] = field(default_factory=list)
     work_capped_hours: float = 0.0      # hours the work hub's demand exceeded p_max_kw
-    work_curtailed_kwh=self._curtailed_kwh["work"],
-    work_fixed_cost=self.work.fixed_cost_per_day * len(self._days_seen),
-)
+    work_curtailed_kwh: float = 0.0     # energy it couldn't deliver because of the cap
+    work_fixed_cost: float = 0.0        # network + maintenance over the run
 
     @property
     def work_capped_share(self) -> float:
@@ -742,4 +741,6 @@ class CommuteSimulation:
             peak_work_kw=self._peak_work, strategy=" + ".join(names), stations=stations,
             work_capped_hours=self._capped_hours["work"],
             work_curtailed_kwh=self._curtailed_kwh["work"],
+            work_fixed_cost=self.work.fixed_cost_per_day * len(self._days_seen),
         )
+        
