@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Module UML" id="ev-uml">
-    <mxGraphModel dx="1307" dy="1002" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2600" pageHeight="2600" math="0" shadow="0">
+    <mxGraphModel dx="1837" dy="1354" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2600" pageHeight="2600" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -61,8 +61,8 @@
         <mxCell id="CommuteConfig-9" parent="CommuteConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="public_visit_hours = (6, 22)" vertex="1">
           <mxGeometry height="24" width="340" y="236" as="geometry" />
         </mxCell>
-        <mxCell id="PublicStationConfig" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=2;" value="&lt;b&gt;PublicStationConfig&lt;/b&gt;" vertex="1">
-          <mxGeometry height="204" width="340" y="356" as="geometry" />
+        <mxCell id="PublicStationConfig" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=2;" value="&lt;b&gt;PublicStationConfig&lt;/b&gt;" vertex="1">
+          <mxGeometry height="198" width="340" y="356" as="geometry" />
         </mxCell>
         <mxCell id="PublicStationConfig-10" parent="PublicStationConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="name, kind: L2 | DCFC" vertex="1">
           <mxGeometry height="24" width="340" y="30" as="geometry" />
@@ -82,7 +82,7 @@
         <mxCell id="PublicStationConfig-15" parent="PublicStationConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="customer_class, site_rate (27 / EV-L)" vertex="1">
           <mxGeometry height="24" width="340" y="150" as="geometry" />
         </mxCell>
-        <mxCell id="PublicStationConfig-16" parent="PublicStationConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#a33a39;" value="to do: real station locations and detours" vertex="1">
+        <mxCell id="PublicStationConfig-16" parent="PublicStationConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#000000;" value="&lt;span style=&quot;font-style: normal;&quot;&gt;real station locations and detours&lt;/span&gt;" vertex="1">
           <mxGeometry height="24" width="340" y="174" as="geometry" />
         </mxCell>
         <mxCell id="ScenarioConfig" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=44;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=1;" value="&amp;laquo;config: one hub&amp;raquo;&lt;br&gt;&lt;b&gt;ScenarioConfig&lt;/b&gt;" vertex="1">
@@ -121,8 +121,8 @@
         <mxCell id="WorkHubConfig-26" parent="WorkHubConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="move_window_minutes = 60" vertex="1">
           <mxGeometry height="24" width="340" y="126" as="geometry" />
         </mxCell>
-        <mxCell id="HomeChargingConfig" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=2;" value="&lt;b&gt;HomeChargingConfig&lt;/b&gt;" vertex="1">
-          <mxGeometry height="252" width="340" x="380" y="246" as="geometry" />
+        <mxCell id="HomeChargingConfig" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=2;" value="&lt;b&gt;HomeChargingConfig&lt;/b&gt;" vertex="1">
+          <mxGeometry height="230" width="340" x="380" y="246" as="geometry" />
         </mxCell>
         <mxCell id="HomeChargingConfig-27" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="customer_class = residential, site_rate = 7" vertex="1">
           <mxGeometry height="24" width="340" y="30" as="geometry" />
@@ -136,38 +136,38 @@
         <mxCell id="HomeChargingConfig-30" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="no_home_share = 0.10 (NREL 2030 study)" vertex="1">
           <mxGeometry height="24" width="340" y="102" as="geometry" />
         </mxCell>
-        <mxCell id="HomeChargingConfig-31" parent="HomeChargingConfig" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=#d6b656;" vertex="1">
-          <mxGeometry height="8" width="340" y="134" as="geometry" />
+        <mxCell id="HomeChargingConfig-34" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#000000;" value="&lt;span style=&quot;font-style: normal;&quot;&gt;CT / Boston home-access share (NREL county data)&lt;/span&gt;" vertex="1">
+          <mxGeometry height="24" width="340" y="126" as="geometry" />
         </mxCell>
-        <mxCell id="HomeChargingConfig-32" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Courier New;fontSize=10.5;" value="shares -&amp;gt; {L2, L1, none}" vertex="1">
+        <mxCell id="HomeChargingConfig-35" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=light-dark(#000000, #ef9594);" value="&lt;span style=&quot;font-style: normal;&quot;&gt;home price mode fixed_tou (6-month Rate 7)&lt;/span&gt;" vertex="1">
           <mxGeometry height="24" width="340" y="150" as="geometry" />
         </mxCell>
+        <mxCell id="HomeChargingConfig-31" parent="HomeChargingConfig" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=#d6b656;" vertex="1">
+          <mxGeometry height="8" width="340" y="174" as="geometry" />
+        </mxCell>
+        <mxCell id="HomeChargingConfig-32" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Courier New;fontSize=10.5;" value="shares -&amp;gt; {L2, L1, none}" vertex="1">
+          <mxGeometry height="24" width="340" y="182" as="geometry" />
+        </mxCell>
         <mxCell id="HomeChargingConfig-33" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Courier New;fontSize=10.5;" value="assign_home_chargers(n, shares)" vertex="1">
-          <mxGeometry height="24" width="340" y="174" as="geometry" />
+          <mxGeometry height="24" width="340" y="206" as="geometry" />
         </mxCell>
-        <mxCell id="HomeChargingConfig-34" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#a33a39;" value="to do: CT / Boston home-access share (NREL county data)" vertex="1">
-          <mxGeometry height="24" width="340" y="198" as="geometry" />
-        </mxCell>
-        <mxCell id="HomeChargingConfig-35" parent="HomeChargingConfig" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#a33a39;" value="to do: home price mode fixed_tou (6-month Rate 7)" vertex="1">
-          <mxGeometry height="24" width="340" y="222" as="geometry" />
-        </mxCell>
-        <mxCell id="PeakWindow" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=2;" value="&lt;b&gt;PeakWindow&lt;/b&gt;" vertex="1">
-          <mxGeometry height="156" width="340" x="380" y="528" as="geometry" />
+        <mxCell id="PeakWindow" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=2;" value="&lt;b&gt;PeakWindow&lt;/b&gt;" vertex="1">
+          <mxGeometry height="134" width="340" x="380" y="528" as="geometry" />
         </mxCell>
         <mxCell id="PeakWindow-36" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;" value="weekdays 12:00-20:00 on-peak" vertex="1">
           <mxGeometry height="24" width="340" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="PeakWindow-37" parent="PeakWindow" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=#d6b656;" vertex="1">
-          <mxGeometry height="8" width="340" y="62" as="geometry" />
+        <mxCell id="PeakWindow-39" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#000000;" value="&lt;span style=&quot;font-style: normal;&quot;&gt;holidays off-peak&lt;/span&gt;" vertex="1">
+          <mxGeometry height="24" width="340" y="54" as="geometry" />
         </mxCell>
-        <mxCell id="PeakWindow-38" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Courier New;fontSize=10.5;" value="is_on_peak(t) -&amp;gt; bool" vertex="1">
+        <mxCell id="PeakWindow-40" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#000000;" value="&lt;span style=&quot;font-style: normal;&quot;&gt;peak window for large C&amp;amp;I / Last Resort&lt;/span&gt;" vertex="1">
           <mxGeometry height="24" width="340" y="78" as="geometry" />
         </mxCell>
-        <mxCell id="PeakWindow-39" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#a33a39;" value="to do: holidays off-peak?" vertex="1">
-          <mxGeometry height="24" width="340" y="102" as="geometry" />
+        <mxCell id="PeakWindow-37" parent="PeakWindow" style="line;strokeWidth=1;fillColor=none;align=left;verticalAlign=middle;spacingTop=-1;spacingLeft=3;spacingRight=3;rotatable=0;labelPosition=right;points=[];portConstraint=eastwest;strokeColor=#d6b656;" vertex="1">
+          <mxGeometry height="8" width="340" y="102" as="geometry" />
         </mxCell>
-        <mxCell id="PeakWindow-40" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontStyle=2;fontColor=#a33a39;" value="to do: peak window for large C&amp;amp;I / Last Resort" vertex="1">
-          <mxGeometry height="24" width="340" y="126" as="geometry" />
+        <mxCell id="PeakWindow-38" parent="PeakWindow" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=4;overflow=hidden;rotatable=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;whiteSpace=wrap;html=1;fontSize=11;fontFamily=Courier New;fontSize=10.5;" value="is_on_peak(t) -&amp;gt; bool" vertex="1">
+          <mxGeometry height="24" width="340" y="110" as="geometry" />
         </mxCell>
         <mxCell id="PriceSchedule" parent="1" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=44;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=0;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#ffffff;fontSize=12;strokeWidth=1;" value="&amp;laquo;protocol&amp;raquo;&lt;br&gt;&lt;b&gt;PriceSchedule&lt;/b&gt;" vertex="1">
           <mxGeometry height="98" width="340" x="800" y="60" as="geometry" />
